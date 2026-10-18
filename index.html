@@ -363,10 +363,10 @@ const TYPE_GROUPS=[['basic','コマを置く'],['animal','動物'],['block','ブ
 const BLOCK_BASE={box:[1,1,1],wall:[4,2.5,.2],pillar:[.5,3,.5],glass:[1,1,1]};
 const MOVERS=new Set(['person','car','opencar','ball','dog','cat','horse','bird','camrig']);
 const CARS=new Set(['car','opencar']);
-const SEATS=[[-.4,.35],[.4,.35],[-.4,-.6],[.4,-.6]];
+const SEATS=[[-.4,0],[.4,0],[-.4,-.85],[.4,-.85]];
 const SEAT_NAMES=['運転席（右前）','助手席（左前）','後ろ右','後ろ左'];
-const SEAT_H={car:.62,opencar:.82};
-const EYE={person:[0,1.66,.17],pin:[0,1.55,.21],dog:[0,.78,.6],cat:[0,.52,.42],horse:[0,2.05,1.45],bird:[0,.25,.27],car:[-.4,1.2,.3],opencar:[-.4,1.2,.3]};
+const SEAT_H={car:.5,opencar:.64};
+const EYE={person:[0,1.66,.17],pin:[0,1.55,.21],dog:[0,.78,.6],cat:[0,.52,.42],horse:[0,2.05,1.45],bird:[0,.25,.27],car:[-.4,1.24,.17],opencar:[-.4,1.38,.17]};
 const COLORS=['#e9e4da','#e07a5f','#f2cc8f','#81b29a','#6aa9d8','#b39ddb','#9aa5b1','#4a4f63','#c99a6b','#6b5444'];
 const ASPECTS={'16:9':16/9,'2.39:1':2.39,'4:3':4/3,'1:1':1,'9:16':9/16};
 const LENSES=[18,24,35,50,85,135];
@@ -572,28 +572,43 @@ function buildPiece(p){
     add(new THREE.SphereGeometry(.12,18,14),m,0,1.7,0);
     add(new THREE.BoxGeometry(.07,.05,.09),dark,0,1.7,.12);
     g.userData.legs=legs; g.userData.arms=arms;
-  }else if(p.type==='car'){
-    const cab=mat(new THREE.Color(p.color).multiplyScalar(.6));
-    add(new THREE.BoxGeometry(1.8,.7,4.2),m,0,.6,0);
-    add(new THREE.BoxGeometry(1.6,.6,2.1),cab,0,1.25,-.25);
+  }else if(p.type==='car'||p.type==='opencar'){
+    const open=p.type==='opencar', seatM=mat(0x2a2f36), trimM=mat(0x1b1f25);
+    const glassM=new THREE.MeshStandardMaterial({color:0xa9cbe0,transparent:true,opacity:open?.3:.26,depthWrite:false,roughness:.1});
+    const glass=(geo,x,y,z)=>{const me=new THREE.Mesh(geo,glassM);me.position.set(x,y,z);me.renderOrder=1;g.add(me);return me;};
+    if(!open){
+      add(new THREE.BoxGeometry(1.8,.6,4.2),m,0,.55,0);                 /* body up to the beltline */
+      add(new THREE.BoxGeometry(1.58,.07,1.95),m,0,1.465,-.15);        /* roof */
+      for(const sd of [-1,1]){                                          /* A / B / C pillars */
+        const a=add(new THREE.BoxGeometry(.07,.66,.08),m,sd*.76,1.15,.8); a.rotation.x=-.38;
+        add(new THREE.BoxGeometry(.07,.6,.08),m,sd*.76,1.15,-.3);
+        const c=add(new THREE.BoxGeometry(.07,.66,.08),m,sd*.76,1.15,-1.1); c.rotation.x=.42;
+      }
+      glass(new THREE.BoxGeometry(1.52,.58,1.9),0,1.15,-.15);          /* see-through cabin so riders show */
+      add(new THREE.BoxGeometry(1.6,.16,.3),trimM,0,.92,.7);            /* dashboard */
+    }else{
+      add(new THREE.BoxGeometry(1.8,.4,4.2),m,0,.45,0);
+      for(const sd of [-1,1]) add(new THREE.BoxGeometry(.12,.36,2.1),m,sd*.84,.83,-.4);
+      add(new THREE.BoxGeometry(1.8,.36,1.4),m,0,.83,1.4);
+      add(new THREE.BoxGeometry(1.8,.36,.9),m,0,.83,-1.65);
+      add(new THREE.BoxGeometry(1.6,.16,.26),trimM,0,1.08,.76);         /* dashboard */
+      const ws=glass(new THREE.BoxGeometry(1.6,.42,.03),0,1.36,.98); ws.rotation.x=-.45;
+      const fr=add(new THREE.BoxGeometry(1.64,.05,.06),trimM,0,1.55,.9); fr.castShadow=false;
+    }
+    const sh=SEAT_H[p.type];
+    for(const [x,z] of SEATS){                                          /* seats */
+      add(new THREE.BoxGeometry(.5,.12,.5),seatM,x,sh-.04,z);
+      const bk=add(new THREE.BoxGeometry(.5,.6,.1),seatM,x,sh+.28,z-.27); bk.rotation.x=-.15;
+    }
+    /* steering wheel: a ring on a column, right-hand drive */
+    const wy=open?1.08:.94, wz=.52; /* about half a metre ahead of the driver's eyes and lower */
+    const wheelRing=add(new THREE.TorusGeometry(.17,.022,8,28),trimM,-.4,wy,wz); wheelRing.rotation.x=-.42;
+    const spoke=add(new THREE.BoxGeometry(.3,.025,.02),trimM,-.4,wy,wz); spoke.rotation.x=-.42;
+    const col=add(new THREE.CylinderGeometry(.022,.022,.32,8),trimM,-.4,wy-.06,wz+.14); col.rotation.x=1.15;
     const wheels=[];
     for(const x of [-.86,.86]) for(const z of [-1.35,1.35]){const w=add(new THREE.CylinderGeometry(.34,.34,.24,16),dark,x,.34,z); w.rotation.z=Math.PI/2; wheels.push(w);}
     const lamp=new THREE.MeshBasicMaterial({color:0xfff1c1});
-    for(const x of [-.6,.6]) add(new THREE.BoxGeometry(.32,.14,.04),lamp,x,.72,2.11);
-    g.userData.wheels=wheels;
-  }else if(p.type==='opencar'){
-    const seatM=mat(0x2a2f36), glassM=new THREE.MeshStandardMaterial({color:0xbfe3f2,transparent:true,opacity:.35,depthWrite:false,roughness:.1});
-    add(new THREE.BoxGeometry(1.8,.42,4.2),m,0,.46,0);
-    for(const sd of [-1,1]) add(new THREE.BoxGeometry(.12,.32,2.0),m,sd*.84,.83,-.15);
-    add(new THREE.BoxGeometry(1.8,.32,1.3),m,0,.83,1.45);
-    add(new THREE.BoxGeometry(1.8,.32,.95),m,0,.83,-1.62);
-    for(const [x,z] of SEATS){add(new THREE.BoxGeometry(.5,.14,.5),seatM,x,.74,z);const bk=add(new THREE.BoxGeometry(.5,.55,.1),seatM,x,1.02,z-.27);bk.rotation.x=-.15;}
-    const ws=add(new THREE.BoxGeometry(1.6,.42,.03),glassM,0,1.15,.72); ws.rotation.x=-.45; ws.castShadow=false;
-    add(new THREE.BoxGeometry(.36,.36,.05),seatM,-.4,1.02,.6).rotation.x=-.6;
-    const wheels=[];
-    for(const x of [-.86,.86]) for(const z of [-1.35,1.35]){const w=add(new THREE.CylinderGeometry(.34,.34,.24,16),dark,x,.34,z); w.rotation.z=Math.PI/2; wheels.push(w);}
-    const lamp=new THREE.MeshBasicMaterial({color:0xfff1c1});
-    for(const x of [-.6,.6]) add(new THREE.BoxGeometry(.32,.14,.04),lamp,x,.75,2.11);
+    for(const x of [-.6,.6]) add(new THREE.BoxGeometry(.32,.14,.04),lamp,x,open?.55:.7,2.11);
     g.userData.wheels=wheels;
   }else if(p.type==='box'){
     add(new THREE.BoxGeometry(1,1,1),m,0,.5,0);
@@ -676,7 +691,7 @@ function pose(p,t,depth){
   if(p.ride){ /* a passenger sits in its car's seat and moves with it */
     const car=state.pieces.find(q=>q.id===p.ride);
     if(car&&!car.ride){
-      const c=pose(car,t,depth+1),cs=car.size,o=SEATS[p.seat]||SEATS[0],ox=o[0]*cs.x,oz=o[1]*cs.z,r=c.r*D2R,hip=p.style==='pin'?.35:.92;
+      const c=pose(car,t,depth+1),cs=car.size,o=SEATS[p.seat]||SEATS[0],ox=o[0]*cs.x,oz=o[1]*cs.z,r=c.r*D2R,hip=p.style==='pin'?.8:.92;
       return {x:c.x+ox*Math.cos(r)+oz*Math.sin(r),y:c.y+SEAT_H[car.type]*cs.y-hip*p.size.y,z:c.z-ox*Math.sin(r)+oz*Math.cos(r),r:c.r,rx:0,rz:0,seated:true};
     }
   }
@@ -747,9 +762,9 @@ function povRaw(p,t){
 function povCam(p,t){
   const w=state.cam.povSmooth||0;
   if(w<.02){const r=povRaw(p,t);return {pos:r.pos,tgt:r.pos.clone().addScaledVector(r.dir,5)};}
-  const n=8,P=new THREE.Vector3(),D=new THREE.Vector3(); let sw=0;
-  for(let i=-n;i<=n;i++){const f=i/n,wt=Math.exp(-f*f*2.5),r=povRaw(p,clamp(t+f*w,0,state.duration));P.addScaledVector(r.pos,wt);D.addScaledVector(r.dir,wt);sw+=wt;}
-  P.divideScalar(sw); if(D.lengthSq()<1e-6) D.set(0,0,1); D.normalize();
+  const n=8,D=new THREE.Vector3(),P=povRaw(p,t).pos;
+  for(let i=-n;i<=n;i++){const f=i/n,wt=Math.exp(-f*f*2.5),r=povRaw(p,clamp(t+f*w,0,state.duration));D.addScaledVector(r.dir,wt);}
+  if(D.lengthSq()<1e-6) D.set(0,0,1); D.normalize();
   return {pos:P,tgt:P.clone().addScaledVector(D,5)};
 }
 const rigPiece=()=>state.pieces.find(q=>q.type==='camrig')||null;
@@ -766,6 +781,7 @@ function rigCam(rp,t){ /* same なめらかさ as the first-person camera */
   const n=8,P=new THREE.Vector3(),D=new THREE.Vector3(); let sw=0,rl=0;
   for(let i=-n;i<=n;i++){const f=i/n,wt=Math.exp(-f*f*2.5),r=rigRaw(rp,clamp(t+f*w,0,state.duration));P.addScaledVector(r.pos,wt);D.addScaledVector(r.dir,wt);rl+=r.roll*wt;sw+=wt;}
   P.divideScalar(sw); if(D.lengthSq()<1e-6) D.set(0,0,1); D.normalize();
+  if(rp.parent&&pieceById(rp.parent)) P.copy(rigRaw(rp,t).pos); /* a mounted camera never drifts off its mount */
   return {pos:P,tgt:P.clone().addScaledVector(D,5),roll:rl/sw};
 }
 function camPoseAt(t,noShake){
