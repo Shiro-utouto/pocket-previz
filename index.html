@@ -93,6 +93,8 @@ button:disabled{opacity:.35;cursor:default}
 #labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 .lab{position:absolute;left:0;top:0;font:700 11px/1.2 var(--f-body);padding:3px 7px;border-radius:5px;background:var(--scrim);color:var(--fg);white-space:nowrap;will-change:transform}
 .lab.sel{background:var(--amber);color:var(--amber-ink)}
+.lab.camlab{background:var(--scrim);color:var(--cyan);box-shadow:inset 0 0 0 1px var(--cyan)}
+.lab.camlab.live{background:var(--cyan);color:var(--amber-ink)}
 #tools{position:absolute;right:calc(10px + env(safe-area-inset-right,0px));top:10px;display:flex;flex-direction:column;gap:8px;z-index:2}
 .rail{flex-direction:column;gap:3px;width:52px;min-height:52px;padding:6px 0 5px;font-size:10px;font-weight:500;background:var(--glass);border-color:var(--line);border-radius:12px;color:var(--fg);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 .rail[aria-pressed="true"]{background:var(--amber);color:var(--amber-ink);border-color:transparent;font-weight:700}
@@ -213,6 +215,14 @@ select{font:500 16px var(--f-body);color:var(--fg);background:var(--panel3);bord
 .spins{display:flex;flex-direction:column;gap:6px}
 .spin{display:grid;grid-template-columns:3.6em 1fr 1fr;gap:7px;align-items:center}
 .spin span{color:var(--muted);font-size:12.5px}
+.camsel{display:flex;flex-wrap:wrap;gap:7px}
+.chip.cutchip::before{background:var(--cyan)}
+.camchip{gap:6px}
+.livedot{width:7px;height:7px;border-radius:50%;background:var(--rec)}
+.cutrow{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;align-items:center}
+.mk.cut{top:50%;width:2px;height:80%;border-radius:1px;transform:translate(-50%,-50%);background:var(--fg)}
+.cutseg{position:absolute;top:3px;bottom:3px;border-radius:4px;background:var(--cyan-soft);border-left:2px solid var(--cyan);font:700 10.5px/20px var(--f-body);color:var(--cyan);padding-left:5px;overflow:hidden;white-space:nowrap;pointer-events:none}
+.tk.cut{background:var(--fg);width:4px;height:22px;margin:-11px 0 0 -2px;transform:none;border-radius:2px}
 .tips{margin:0;padding-left:1.1em;color:var(--muted);font-size:12.5px;line-height:1.7}
 .tips b{color:var(--fg);font-weight:700}
 .list{display:flex;flex-direction:column;gap:4px}
@@ -391,25 +401,32 @@ function sampleScene(){
   ],cam:{mode:'orbit',target:'p1',lens:35,lookH:1.3,shake:.15,aspect:'16:9',
     orbit:{radius:5,height:1.7,speed:25,start:200},
     follow:{dist:4,angle:160,height:1.8},pov:{yaw:0,pitch:-4},povSmooth:.5,povSelf:false,keys:[]},
-    scene:{bg:'#13181d',ground:'#2b3239',grid:'1',gridShot:true}};
+    scene:{bg:'#13181d',ground:'#2b3239',grid:'1',gridShot:true},aspect:'16:9',cuts:[]};
 }
 function num(v,d){v=+v;return isFinite(v)?v:d;}
 function defSize(type){return type==='glass'?{x:2,y:2,z:2}:{x:1,y:1,z:1};}
 function normSize(s,type){const d=defSize(type);if(!s||typeof s!=='object')return d;return {x:clamp(num(s.x,d.x),.02,50),y:clamp(num(s.y,d.y),.02,50),z:clamp(num(s.z,d.z),.02,50)};}
-function normalize(s){
-  if(!s||typeof s!=='object'||!Array.isArray(s.pieces)) throw new Error('bad scene');
-  const d=sampleScene(), sc=s.cam&&typeof s.cam==='object'?s.cam:{};
+const CAM_LETTERS='ABCDEFGHJKLMNPQRSTUVWXYZ';
+function normCam(sc,d,i){
   const cam=Object.assign({},d.cam,sc);
   cam.orbit=Object.assign({},d.cam.orbit,sc.orbit||{});
   cam.follow=Object.assign({},d.cam.follow,sc.follow||{});
   cam.pov=Object.assign({},d.cam.pov,sc.pov||{});
   cam.povKeys=Array.isArray(sc.povKeys)?sc.povKeys.filter(k=>k&&isFinite(k.t)).map(k=>({t:+k.t,yaw:num(k.yaw,0),pitch:clamp(num(k.pitch,0),-60,60)})).sort((a,b)=>a.t-b.t):[];
   cam.keys=Array.isArray(sc.keys)?sc.keys.filter(k=>k&&isFinite(k.t)).map(k=>({t:+k.t,px:num(k.px,0),py:num(k.py,1),pz:num(k.pz,0),tx:num(k.tx,0),ty:num(k.ty,1),tz:num(k.tz,0)})).sort((a,b)=>a.t-b.t):[];
-  if(!ASPECTS[cam.aspect]) cam.aspect='16:9';
   if(!['orbit','follow','pov','keys','rig'].includes(cam.mode)) cam.mode='orbit';
   cam.rigAim=!!cam.rigAim;
   cam.povSmooth=clamp(num(cam.povSmooth,.5),0,1.5); cam.povSelf=!!cam.povSelf;
   cam.lens=clamp(num(cam.lens,35),12,200); cam.shake=clamp(num(cam.shake,0),0,1); cam.lookH=num(cam.lookH,1.2);
+  cam.id=String(sc.id||uid()); cam.name=String(sc.name||('カメラ'+CAM_LETTERS[i%CAM_LETTERS.length])).slice(0,16);
+  cam.rigId=typeof sc.rigId==='string'?sc.rigId:null; delete cam.aspect;
+  return cam;
+}
+function normalize(s){
+  if(!s||typeof s!=='object'||!Array.isArray(s.pieces)) throw new Error('bad scene');
+  const d=sampleScene();
+  const camSrc=Array.isArray(s.cams)&&s.cams.length?s.cams:[s.cam&&typeof s.cam==='object'?s.cam:{}];
+  const cams=camSrc.map((sc,i)=>normCam(sc&&typeof sc==='object'?sc:{},d,i));
   const pieces=[];
   for(const p of s.pieces){
     if(!p||!TYPES[p.type]) continue;
@@ -429,10 +446,22 @@ function normalize(s){
     if(!byId.has(p.parent)||p.parent===p.id||p.ride){p.parent=null;continue;}
     let x=byId.get(p.parent),n=0; while(x&&x.parent&&n<60){if(x.parent===p.id){p.parent=null;break;} x=byId.get(x.parent); n++;}
   }
-  if(cam.target&&!pieces.some(p=>p.id===cam.target)) cam.target=null;
+  const rigs=pieces.filter(q=>q.type==='camrig'), used=new Set();
+  for(const cam of cams){
+    if(cam.target&&!pieces.some(p=>p.id===cam.target)) cam.target=null;
+    if(cam.rigId&&!rigs.some(q=>q.id===cam.rigId)) cam.rigId=null;
+    if(cam.rigId) used.add(cam.rigId);
+  }
+  for(const cam of cams) if(cam.mode==='rig'&&!cam.rigId){const r=rigs.find(q=>!used.has(q.id));if(r){cam.rigId=r.id;used.add(r.id);}}
   const ss=s.scene&&typeof s.scene==='object'?s.scene:{}, hex=v=>/^#[0-9a-f]{6}$/i.test(v);
   const scn={bg:hex(ss.bg)?ss.bg:d.scene.bg,ground:hex(ss.ground)?ss.ground:d.scene.ground,grid:['off','1','5','10'].includes(String(ss.grid))?String(ss.grid):d.scene.grid,gridShot:ss.gridShot!==false};
-  return {duration:clamp(Math.round(num(s.duration,8)*10)/10,1,120),pieces,cam,scene:scn};
+  const duration=clamp(Math.round(num(s.duration,8)*10)/10,1,120);
+  const aspect=ASPECTS[s.aspect]?s.aspect:(ASPECTS[(camSrc[0]||{}).aspect]?camSrc[0].aspect:'16:9');
+  const cuts=(Array.isArray(s.cuts)?s.cuts:[]).filter(k=>k&&isFinite(k.t)&&cams.some(c=>c.id===k.cam)).map(k=>({t:clamp(+k.t,0,duration),cam:k.cam})).sort((a,b)=>a.t-b.t);
+  const out={duration,pieces,cams,camSel:cams.some(c=>c.id===s.camSel)?s.camSel:cams[0].id,cuts,aspect,scene:scn};
+  /* state.cam = the camera being edited (not saved; cams holds them all) */
+  Object.defineProperty(out,'cam',{get(){return this.cams.find(c=>c.id===this.camSel)||this.cams[0];},enumerable:false,configurable:true});
+  return out;
 }
 let state=null, fromSample=false;
 try{const raw=localStorage.getItem(SKEY); if(raw) state=normalize(JSON.parse(raw));}catch(e){state=null;}
@@ -750,42 +779,42 @@ function editPose(p,patch){
 }
 
 /* ---------- shot camera ---------- */
-function povRaw(p,t){
+function povRaw(p,t,c){
   const s=p?pose(p,t):{x:0,y:0,z:0,r:0};
   const e=p?(EYE[p.type==='person'&&p.style==='pin'?'pin':p.type]||[0,1,0]):[0,1.6,0], sz=p?p.size:{x:1,y:1,z:1}, r=s.r*D2R;
   const ex=e[0]*sz.x, ey=e[1]*sz.y, ez=e[2]*sz.z;
   const pos=new THREE.Vector3(s.x+ex*Math.cos(r)+ez*Math.sin(r),s.y+ey,s.z-ex*Math.sin(r)+ez*Math.cos(r));
-  const pv=povAt(t),a=(s.r+pv.yaw)*D2R,b=pv.pitch*D2R;
+  const pv=povAt(t,c),a=(s.r+pv.yaw)*D2R,b=pv.pitch*D2R;
   return {pos,dir:new THREE.Vector3(Math.sin(a)*Math.cos(b),Math.sin(b),Math.cos(a)*Math.cos(b))};
 }
 /* なめらかさ: a soft average of where the eye is and where it looks around each moment */
-function povCam(p,t){
-  const w=state.cam.povSmooth||0;
-  if(w<.02){const r=povRaw(p,t);return {pos:r.pos,tgt:r.pos.clone().addScaledVector(r.dir,5)};}
-  const n=8,D=new THREE.Vector3(),P=povRaw(p,t).pos;
-  for(let i=-n;i<=n;i++){const f=i/n,wt=Math.exp(-f*f*2.5),r=povRaw(p,clamp(t+f*w,0,state.duration));D.addScaledVector(r.dir,wt);}
+function povCam(p,t,c){
+  const w=c.povSmooth||0;
+  if(w<.02){const r=povRaw(p,t,c);return {pos:r.pos,tgt:r.pos.clone().addScaledVector(r.dir,5)};}
+  const n=8,D=new THREE.Vector3(),P=povRaw(p,t,c).pos;
+  for(let i=-n;i<=n;i++){const f=i/n,wt=Math.exp(-f*f*2.5),r=povRaw(p,clamp(t+f*w,0,state.duration),c);D.addScaledVector(r.dir,wt);}
   if(D.lengthSq()<1e-6) D.set(0,0,1); D.normalize();
   return {pos:P,tgt:P.clone().addScaledVector(D,5)};
 }
-const rigPiece=()=>state.pieces.find(q=>q.type==='camrig')||null;
-function rigRaw(rp,t){
-  const c=state.cam, s=pose(rp,t), pos=new THREE.Vector3(s.x,s.y,s.z);
+const rigPiece=c=>{c=c||state.cam;return pieceById(c.rigId);};
+function rigRaw(rp,t,c){
+  const s=pose(rp,t), pos=new THREE.Vector3(s.x,s.y,s.z);
   const tp=c.rigAim&&c.target&&c.target!==rp.id?pieceById(c.target):null; let dir;
   if(tp){const ts=pose(tp,t);dir=new THREE.Vector3(ts.x,ts.y+c.lookH,ts.z).sub(pos);if(dir.lengthSq()<1e-6)dir.set(0,0,1);dir.normalize();}
   else{const a=s.r*D2R,b=-(s.rx||0)*D2R;dir=new THREE.Vector3(Math.sin(a)*Math.cos(b),Math.sin(b),Math.cos(a)*Math.cos(b));}
   return {pos,dir,roll:s.rz||0};
 }
-function rigCam(rp,t){ /* same なめらかさ as the first-person camera */
-  const w=state.cam.povSmooth||0;
-  if(w<.02){const r=rigRaw(rp,t);return {pos:r.pos,tgt:r.pos.clone().addScaledVector(r.dir,5),roll:r.roll};}
+function rigCam(rp,t,c){ /* same なめらかさ as the first-person camera */
+  const w=c.povSmooth||0;
+  if(w<.02){const r=rigRaw(rp,t,c);return {pos:r.pos,tgt:r.pos.clone().addScaledVector(r.dir,5),roll:r.roll};}
   const n=8,P=new THREE.Vector3(),D=new THREE.Vector3(); let sw=0,rl=0;
-  for(let i=-n;i<=n;i++){const f=i/n,wt=Math.exp(-f*f*2.5),r=rigRaw(rp,clamp(t+f*w,0,state.duration));P.addScaledVector(r.pos,wt);D.addScaledVector(r.dir,wt);rl+=r.roll*wt;sw+=wt;}
+  for(let i=-n;i<=n;i++){const f=i/n,wt=Math.exp(-f*f*2.5),r=rigRaw(rp,clamp(t+f*w,0,state.duration),c);P.addScaledVector(r.pos,wt);D.addScaledVector(r.dir,wt);rl+=r.roll*wt;sw+=wt;}
   P.divideScalar(sw); if(D.lengthSq()<1e-6) D.set(0,0,1); D.normalize();
-  if(rp.parent&&pieceById(rp.parent)) P.copy(rigRaw(rp,t).pos); /* a mounted camera never drifts off its mount */
+  if(rp.parent&&pieceById(rp.parent)) P.copy(rigRaw(rp,t,c).pos); /* a mounted camera never drifts off its mount */
   return {pos:P,tgt:P.clone().addScaledVector(D,5),roll:rl/sw};
 }
-function camPoseAt(t,noShake){
-  const c=state.cam; let pos,tgt,roll=0;
+function camPoseAt(t,noShake,c){
+  c=c||state.cam; let pos,tgt,roll=0;
   if(c.mode==='keys'){
     const k=c.keys;
     if(!k.length){pos=new THREE.Vector3(7,3,9);tgt=new THREE.Vector3(0,1,0);}
@@ -798,13 +827,13 @@ function camPoseAt(t,noShake){
       tgt=new THREE.Vector3(a.tx+(b.tx-a.tx)*u,a.ty+(b.ty-a.ty)*u,a.tz+(b.tz-a.tz)*u);
     }
   }else if(c.mode==='rig'){
-    const rp=rigPiece();
+    const rp=rigPiece(c);
     if(!rp){pos=new THREE.Vector3(7,3,9);tgt=new THREE.Vector3(0,1,0);}
-    else{const r=rigCam(rp,t);pos=r.pos;tgt=r.tgt;roll=r.roll;}
+    else{const r=rigCam(rp,t,c);pos=r.pos;tgt=r.tgt;roll=r.roll;}
   }else{
     const p=state.pieces.find(q=>q.id===c.target), s=p?pose(p,t):{x:0,y:0,z:0,r:0};
     if(c.mode==='pov'){ /* first-person: from the piece's eye, looking where it faces */
-      const pc=povCam(p,t); pos=pc.pos; tgt=pc.tgt;
+      const pc=povCam(p,t,c); pos=pc.pos; tgt=pc.tgt;
     }else{
     tgt=new THREE.Vector3(s.x,s.y+c.lookH,s.z);
     if(c.mode==='orbit'){const a=(c.orbit.start+c.orbit.speed*t)*D2R;pos=new THREE.Vector3(s.x+Math.sin(a)*c.orbit.radius,s.y+c.orbit.height,s.z+Math.cos(a)*c.orbit.radius);}
@@ -820,8 +849,8 @@ function camPoseAt(t,noShake){
   }
   return {pos,tgt,roll};
 }
-function povAt(t){
-  const c=state.cam,k=c.povKeys; if(!k.length) return c.pov;
+function povAt(t,c){
+  c=c||state.cam; const k=c.povKeys; if(!k.length) return c.pov;
   if(k.length===1||t<=k[0].t) return k[0];
   const L=k[k.length-1]; if(t>=L.t) return L;
   const i=segIndex(k,t),a=k[i],b=k[i+1],u=(t-a.t)/((b.t-a.t)||1);
@@ -851,8 +880,8 @@ function finishLook(){
     if(Math.abs(wrap180(lerpAng(a.yaw,c.yaw,u)-b.yaw))<.8&&Math.abs(a.pitch+(c.pitch-a.pitch)*u-b.pitch)<.8)continue;}out.push(b);}out.push(k[k.length-1]);state.cam.povKeys=out;}
   changed(); if(pref.tab==='cam') renderPane(); toast(`視線の動きを記録しました（${tc(t0)}〜${tc(t1)}）`);
 }
-function applyLens(cam,aspect){
-  const mm=state.cam.lens; let v;
+function applyLens(cam,aspect,lens){
+  const mm=lens||state.cam.lens; let v;
   if(aspect>=1){const h=2*Math.atan(18/mm);v=2*Math.atan(Math.tan(h/2)/aspect);}else v=2*Math.atan(18/mm);
   cam.fov=v/D2R; cam.aspect=aspect; cam.updateProjectionMatrix();
 }
@@ -878,6 +907,34 @@ function rebuildPaths(){
 
 /* ---------- per-frame ---------- */
 const _pv=new THREE.Vector3();
+/* cuts: from each cut's time on, that camera is live */
+function liveCam(t){
+  const cs=state.cuts; if(!cs.length) return state.cam;
+  let k=cs[0]; for(const c of cs){if(c.t<=t+1e-6)k=c;else break;}
+  return state.cams.find(c=>c.id===k.cam)||state.cam;
+}
+const shownCam=t=>(state.cuts.length&&pref.camView!=='edit')?liveCam(t):state.cam;
+/* the other cameras show as faint frustums with their names */
+const camGizmos=new Map(), camPos=new Map(), _tc=new THREE.PerspectiveCamera();
+function frGeom(vfov,aspect){
+  const g=new THREE.BufferGeometry(),d=1.2,hh=Math.tan(vfov*D2R/2)*d,hw=hh*aspect,c=[[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]],a=[];
+  for(const [x,y] of c) a.push(0,0,0,x,y,-d);
+  for(let k=0;k<4;k++){const p=c[k],q=c[(k+1)%4];a.push(p[0],p[1],-d,q[0],q[1],-d);}
+  g.setAttribute('position',new THREE.Float32BufferAttribute(a,3)); return g;
+}
+function updateCamGizmos(t,shown){
+  const ids=new Set(state.cams.map(c=>c.id));
+  for(const [id,o] of camGizmos) if(!ids.has(id)){helpers.remove(o);disposeObj(o);camGizmos.delete(id);}
+  const asp=ASPECTS[state.aspect];
+  for(const c of state.cams){
+    let o=camGizmos.get(c.id), key=c.lens+state.aspect;
+    if(o&&o.userData.key!==key){helpers.remove(o);disposeObj(o);camGizmos.delete(c.id);o=null;}
+    if(!o){_tc.fov=2;applyLens(_tc,asp,c.lens);o=new THREE.LineSegments(frGeom(_tc.fov,asp),new THREE.LineBasicMaterial({color:0x5ec4e2,transparent:true,opacity:.45}));o.userData.key=key;helpers.add(o);camGizmos.set(c.id,o);}
+    if(c===shown){o.visible=false;camPos.set(c.id,shotCam.position.clone());continue;}
+    const cp=camPoseAt(t,true,c); _tc.position.copy(cp.pos); _tc.lookAt(cp.tgt);
+    o.visible=true; o.position.copy(cp.pos); o.quaternion.copy(_tc.quaternion); camPos.set(c.id,cp.pos);
+  }
+}
 function updateScene(t){
   for(const p of state.pieces){
     const g=groups.get(p.id); if(!g) continue;
@@ -902,9 +959,11 @@ function updateScene(t){
   const sp=selPiece();
   if(sp&&groups.get(sp.id)){const s=pose(sp,t);ring.visible=true;ring.position.set(s.x,.015,s.z);ring.scale.setScalar(TYPES[sp.type].foot*Math.max(sp.size.x,sp.size.z));}
   else ring.visible=false;
-  const asp=ASPECTS[state.cam.aspect];
-  if(!manualCam){const cp=camPoseAt(t);shotCam.position.copy(cp.pos);shotCam.lookAt(cp.tgt);if(cp.roll)shotCam.rotateZ(cp.roll*D2R);shotCtl.target.copy(cp.tgt);}
-  applyLens(shotCam,asp);
+  const asp=ASPECTS[state.aspect], shown=shownCam(t);
+  if(shown!==state.cam&&manualCam) manualCam=false;
+  if(!manualCam){const cp=camPoseAt(t,false,shown);shotCam.position.copy(cp.pos);shotCam.lookAt(cp.tgt);if(cp.roll)shotCam.rotateZ(cp.roll*D2R);shotCtl.target.copy(cp.tgt);}
+  applyLens(shotCam,asp,shown.lens);
+  updateCamGizmos(t,shown);
   gizmo.position.copy(shotCam.position); gizmo.quaternion.copy(shotCam.quaternion); setFrustum(shotCam.fov,asp);
 }
 let W=1,H=1;
@@ -926,9 +985,25 @@ function syncLabels(){
     el.classList.toggle('sel',p.id===selId);
   }
 }
+const camLabelEls=new Map();
+function updateCamLabels(cam3){
+  const show=view!=='camera'&&pref.labels, ids=new Set();
+  for(const c of state.cams){
+    if(c.mode==='rig'&&rigPiece(c)) continue; /* its 撮影カメラ piece already carries the name */
+    ids.add(c.id); let el=camLabelEls.get(c.id);
+    if(!el){el=document.createElement('div');el.className='lab camlab';labelsEl.appendChild(el);camLabelEls.set(c.id,el);}
+    if(el.textContent!==c.name) el.textContent=c.name;
+    el.classList.toggle('live',c===shownCam(time));
+    const p=camPos.get(c.id); if(!show||!p){el.style.display='none';continue;}
+    _lv.copy(p); if(view!=='top') _lv.y+=.35; _lv.project(cam3);
+    if(_lv.z>1||_lv.z<-1){el.style.display='none';continue;}
+    el.style.display=''; el.style.transform=`translate(${((_lv.x+1)/2*W).toFixed(1)}px,${((1-_lv.y)/2*H).toFixed(1)}px) translate(-50%,-100%)`;
+  }
+  for(const [id,el] of camLabelEls) if(!ids.has(id)){el.remove();camLabelEls.delete(id);}
+}
 function updateLabels(){
   const show=view!=='camera'&&pref.labels; labelsEl.hidden=!show; if(!show) return;
-  const cam=viewCam();
+  const cam=viewCam(); updateCamLabels(cam);
   for(const p of state.pieces){
     const el=labelEls.get(p.id); if(!el) continue;
     if(p.hidden){el.style.display='none';continue;}
@@ -940,12 +1015,12 @@ function updateLabels(){
     el.style.transform=`translate(${((_lv.x+1)/2*W).toFixed(1)}px,${((1-_lv.y)/2*H).toFixed(1)}px) translate(-50%,-100%)`;
   }
 }
-function camRect(){const a=ASPECTS[state.cam.aspect],pad=12;let w=W-pad*2,h=H-pad*2;if(w/h>a)w=h*a;else h=w/a;return {x:(W-w)/2,y:(H-h)/2,w,h};}
+function camRect(){const a=ASPECTS[state.aspect],pad=12;let w=W-pad*2,h=H-pad*2;if(w/h>a)w=h*a;else h=w/a;return {x:(W-w)/2,y:(H-h)/2,w,h};}
 let frameKey='', hudKey='';
 function shotVis(on){
   for(const p of state.pieces) if(p.hideInShot){const g=groups.get(p.id);if(g)g.visible=on&&!p.hidden;}
   gridGroup.visible=on||state.scene.gridShot;
-  const c=state.cam, tp=c.mode==='pov'&&!c.povSelf&&pieceById(c.target);
+  const c=shownCam(time), tp=c.mode==='pov'&&!c.povSelf&&pieceById(c.target);
   if(tp&&!CARS.has(tp.type)){const g=groups.get(tp.id);if(g)g.visible=on&&!tp.hidden;}
 }
 const frameEl=$('#frame');
@@ -961,8 +1036,8 @@ function render(){
     shotVis(false); renderer.render(scene,shotCam); shotVis(true); renderer.setScissorTest(false);
     const fk=[r.x,r.y,r.w,r.h].map(Math.round).join(',');
     if(fk!==frameKey){frameKey=fk;Object.assign(frameEl.style,{left:r.x+'px',top:r.y+'px',width:r.w+'px',height:r.h+'px'});}
-    const hk=state.cam.lens+state.cam.aspect;
-    if(hk!==hudKey){hudKey=hk;$('#hudLens').textContent='A CAM '+state.cam.lens+'mm';$('#hudAsp').textContent=state.cam.aspect;}
+    const sc=shownCam(time), hk=sc.id+sc.name+sc.lens+state.aspect;
+    if(hk!==hudKey){hudKey=hk;$('#hudLens').textContent=sc.name+'  '+sc.lens+'mm';$('#hudAsp').textContent=state.aspect;}
   }
   if(recording&&recR){helpers.visible=false;shotVis(false);recR.render(scene,shotCam);shotVis(true);}
   helpers.visible=view!=='camera';
@@ -1012,7 +1087,7 @@ stage.addEventListener('pointerdown',e=>{
   ptrs.add(e.pointerId);
   if(drag){e.stopPropagation();return;}
   down=ptrs.size===1?{x:e.clientX,y:e.clientY,moved:false}:null;
-  if(view==='camera'&&state.cam.mode==='pov'&&!recording&&ptrs.size===1&&!(e.button&&e.button!==0)){
+  if(view==='camera'&&state.cam.mode==='pov'&&shownCam(time)===state.cam&&!recording&&ptrs.size===1&&!(e.button&&e.button!==0)){
     e.stopPropagation(); const pv=povAt(time);
     look={id:e.pointerId,x:e.clientX,y:e.clientY,yaw:pv.yaw,pitch:pv.pitch,cur:{yaw:pv.yaw,pitch:pv.pitch},rec:playing?{t0:snap(time),lastT:snap(time)-1}:null};
     if(look.rec){stage.classList.add('tracing');lookSample();}
@@ -1225,7 +1300,7 @@ function panePiece(){
     h+=sec('tilt',isRig?'ティルトとロール':'傾きと回転',tilt,isRig,isRig?'':'スピン・横転');
   }
   if(isRig){
-    if(state.cam.mode!=='rig') h+='<p class="hint small">この撮影カメラは、カメラタブで「動かす」を選んでいるときに使われます。</p>';
+    if(!state.cams.some(c=>c.mode==='rig'&&c.rigId===p.id)) h+='<p class="hint small">この撮影カメラは、カメラタブでそのカメラの「動かす」を選んでいるときに使われます。</p>';
     let rel=`<div class="fld"><label for="f-parent">親</label><select id="f-parent" data-f="parent"><option value="">なし</option>${state.pieces.filter(q=>q!==p&&!isDesc(p,q)&&!q.ride).map(q=>`<option value="${esc(q.id)}"${q.id===p.parent?' selected':''}>${esc(q.name)}</option>`).join('')}</select></div><p class="hint small">車などを親にすると、そのコマに取り付けたカメラになります。</p>`;
     return h+sec('rel','取り付け（グループ）',rel,false);
   }
@@ -1274,7 +1349,10 @@ function paneMotion(){
 }
 function paneCam(){
   const c=state.cam;
-  let h=`<div class="modes" role="group" aria-label="カメラの動き">${[['orbit','周回'],['follow','追従'],['pov','目線'],['keys','キー'],['rig','動かす']].map(([k,l])=>`<button class="mode" data-act="mode" data-v="${k}" aria-pressed="${c.mode===k}">${ICON[k]}${l}</button>`).join('')}</div>`;
+  const live=shownCam(time);
+  let h=`<div class="camsel">${state.cams.map(k=>`<button class="pick camchip${k===c?' on':''}" data-act="camsel" data-v="${esc(k.id)}">${k===live&&state.cuts.length?'<i class="livedot"></i>':''}${esc(k.name)}</button>`).join('')}<button class="pick" data-act="camadd">＋ カメラを増やす</button></div>`;
+  h+=`<div class="phead"><input id="f-camname" class="nm" data-f="camname" value="${esc(c.name)}" maxlength="16" aria-label="カメラの名前" enterkeyhint="done" autocomplete="off"><span class="sp"></span>${state.cams.length>1?`<button class="ib danger" data-act="camdel" aria-label="このカメラを削除">${ICON.trash}</button>`:''}</div>`;
+  h+=`<div class="modes" role="group" aria-label="カメラの動き">${[['orbit','周回'],['follow','追従'],['pov','目線'],['keys','キー'],['rig','動かす']].map(([k,l])=>`<button class="mode" data-act="mode" data-v="${k}" aria-pressed="${c.mode===k}">${ICON[k]}${l}</button>`).join('')}</div>`;
   h+=`<p class="hint small">${modeHint[c.mode]}</p>`;
   let mv='';
   if(c.mode==='rig'){
@@ -1312,11 +1390,19 @@ function paneCam(){
   h+=sec('cmove','カメラの動き',mv,true);
   let lens=rng('cam.lens','レンズ',12,200,1,c.lens,'mm');
   lens+=`<div class="chiprow">${LENSES.map(l=>`<button class="pick${l===c.lens?' on':''}" data-act="lens" data-v="${l}">${l}mm</button>`).join('')}</div>`;
-  lens+=`<div class="lbl">画面比</div><div class="chiprow">${Object.keys(ASPECTS).map(a=>`<button class="pick${a===c.aspect?' on':''}" data-act="aspect" data-v="${a}">${a}</button>`).join('')}</div>`;
-  h+=sec('clens','レンズと画面比',lens,false,`${c.lens}mm・${c.aspect}`);
+  lens+=`<div class="lbl">画面比</div><div class="chiprow">${Object.keys(ASPECTS).map(a=>`<button class="pick${a===state.aspect?' on':''}" data-act="aspect" data-v="${a}">${a}</button>`).join('')}</div>`;
+  h+=sec('clens','レンズと画面比',lens,false,`${c.lens}mm・${state.aspect}`);
   let fin=rng('cam.shake','手ブレ',0,1,.05,c.shake,'');
   if(c.mode==='pov'||c.mode==='rig'){fin+=rng('cam.povSmooth','なめらかさ',0,1.5,.05,c.povSmooth,'s');if(c.mode==='pov')fin+=toggle('povself','自分の体を映す（人・動物）',c.povSelf);fin+='<p class="hint small">なめらかさは、向きの細かいブレや視線のカクつきをならします。</p>';}
   h+=sec('cfin','仕上げ',fin,false);
+  let cu='';
+  if(state.cuts.length){
+    cu+=state.cuts.map((k,i)=>`<div class="cutrow"><button class="chip cutchip${Math.abs(k.t-time)<.5/FPS?' on':''}" data-act="camkey-jump" data-v="${k.t}">${tc(k.t)}</button><span class="muted">から</span><select data-f="cutcam" data-i="${i}" aria-label="${tc(k.t)}からのカメラ">${state.cams.map(m=>`<option value="${esc(m.id)}"${m.id===k.cam?' selected':''}>${esc(m.name)}</option>`).join('')}</select><button class="ib ghost danger" data-act="cutdel" data-v="${i}" aria-label="このカットを消す">${ICON.trash}</button></div>`).join('');
+    cu+=segRow('カメラビュー','camview',[['cut','切り替えどおり'],['edit','このカメラだけ']],pref.camView==='edit'?'edit':'cut');
+  }
+  cu+=`<button class="cam" data-act="cutadd">✂ 今の時間で「${esc(c.name)}」に切り替え</button>`;
+  cu+='<p class="hint small">カットを入れると、その時間からそのカメラの映像に切り替わります。録画はカメラビューに映っているとおりに撮れます。カットがないときは、選んでいるカメラだけで撮ります。</p>';
+  h+=sec('cuts','カメラの切り替え（カット）',cu,state.cuts.length>0,state.cuts.length?`${state.cuts.length}カット`:'');
   if(view==='edit') h+=`<div><button class="ghost" data-act="sync-edit">編集ビューを撮影カメラの位置へ</button></div>`;
   return h;
 }
@@ -1372,7 +1458,13 @@ function paneTimeline(){
   for(let t=0;t<=d+1e-6;t+=step) ticks+=`<span class="tick" style="left:${pc(t)}">${t}s</span>`;
   let h=`<div class="tl" id="tl"><div class="tlrow tlruler"><div class="tlname"></div><div class="tltrack" data-scrub="1">${ticks}</div></div>`;
   const c=state.cam, rigP=c.mode==='rig'?rigPiece():null, ck=c.mode==='keys'?c.keys:c.mode==='pov'?c.povKeys:rigP?rigP.keys:null, cname={orbit:'周回',follow:'追従',pov:'目線',keys:'キー',rig:'動かす'}[c.mode];
-  h+=`<div class="tlrow"><button class="tlname" data-act="tab-cam"><span class="sw" style="background:var(--cyan)"></span>カメラ（${cname}）</button><div class="tltrack" data-scrub="1">${ck?track(ck,'cam',c.mode==='keys'?'cam':c.mode==='pov'?'pov':rigP.id):'<span class="tlnote">設定どおり自動で動きます</span>'}</div></div>`;
+  if(state.cuts.length){
+    let cs='';
+    state.cuts.forEach((k,i)=>{const end=i<state.cuts.length-1?state.cuts[i+1].t:d,cm=state.cams.find(m=>m.id===k.cam);cs+=`<i class="cutseg" style="left:${pc(k.t)};width:${pc(end-k.t)}">${cm?esc(cm.name):''}</i>`;});
+    cs+=state.cuts.map(k=>`<i class="tk cut" data-o="cut" data-t="${k.t}" style="left:${pc(k.t)}"></i>`).join('');
+    h+=`<div class="tlrow"><button class="tlname" data-act="tab-cam"><span class="sw" style="background:var(--fg)"></span>カット</button><div class="tltrack" data-scrub="1">${cs}</div></div>`;
+  }
+  h+=`<div class="tlrow"><button class="tlname" data-act="tab-cam"><span class="sw" style="background:var(--cyan)"></span>${esc(c.name)}（${cname}）</button><div class="tltrack" data-scrub="1">${ck?track(ck,'cam',c.mode==='keys'?'cam':c.mode==='pov'?'pov':rigP.id):'<span class="tlnote">設定どおり自動で動きます</span>'}</div></div>`;
   const ids=new Set(state.pieces.map(q=>q.id));
   const up=q=>q.ride&&ids.has(q.ride)?q.ride:(q.parent&&ids.has(q.parent)?q.parent:null);
   const row=(q,dp)=>{
@@ -1418,6 +1510,7 @@ function rebuildMarks(){
   if(state.cam.mode==='keys') for(const k of state.cam.keys) h+=`<i class="mk cam" style="${pos(k.t)}"></i>`;
   if(state.cam.mode==='pov') for(const k of state.cam.povKeys) h+=`<i class="mk cam" style="${pos(k.t)}"></i>`;
   const rp=state.cam.mode==='rig'&&rigPiece(); if(rp&&rp.id!==selId) for(const k of rp.keys) h+=`<i class="mk cam" style="${pos(k.t)}"></i>`;
+  for(const k of state.cuts) h+=`<i class="mk cut" style="${pos(k.t)}"></i>`;
   marksEl.innerHTML=h;
 }
 function changed(){syncMeshes();syncLabels();rebuildPaths();rebuildMarks();refreshChips();
@@ -1448,17 +1541,18 @@ function updateTimeUI(){
   $('#tcNow').textContent=tc(time); $('#tcDur').textContent='/ '+tc(state.duration);
   scrub.max=state.duration; scrub.value=time; $('#hudTc').textContent=tc(time); placeHead();
 }
-function setTime(t){time=clamp(t,0,state.duration);manualCam=false;updateTimeUI();syncPaneLive();refreshChips();}
+function setTime(t){time=clamp(t,0,state.duration);manualCam=false;updateTimeUI();syncPaneLive();refreshChips();updateCtl();updateHint();}
 const PLAY='<path d="M4 2l10 6-10 6z"/>', PAUSE='<path d="M3 2h4v12H3zM9 2h4v12H9z"/>';
 function setPlaying(v){
   playing=v; $('#playIco').innerHTML=v?PAUSE:PLAY; $('#play').setAttribute('aria-label',v?'一時停止':'再生');
   if(v){manualCam=false;if(time>=state.duration-1e-3)time=0;last=performance.now();}
   else{time=snap(time);updateTimeUI();syncPaneLive();refreshChips();}
 }
-function updateCtl(){editCtl.enabled=view==='edit'&&!recording;topCtl.enabled=view==='top'&&!recording;shotCtl.enabled=view==='camera'&&state.cam.mode==='keys'&&!recording;}
+function updateCtl(){editCtl.enabled=view==='edit'&&!recording;topCtl.enabled=view==='top'&&!recording;shotCtl.enabled=view==='camera'&&shownCam(time)===state.cam&&state.cam.mode==='keys'&&!recording;}
 function updateHint(){
   const el=$('#hint'); let t='';
-  if(view==='camera') t=recording?'':state.cam.mode==='keys'?'指で画を決めて「今の画をキーに」':(state.cam.mode==='rig'?'撮影カメラは編集・真上ビューでドラッグして動かします':state.cam.mode==='pov'?'指でなぞると見る向きが変わります':({orbit:'周回',follow:'追従'}[state.cam.mode])+'カメラの映像');
+  if(view==='camera'&&!recording&&shownCam(time)!==state.cam) t=`${shownCam(time).name}の映像（カットの切り替えどおり）`;
+  else if(view==='camera') t=recording?'':state.cam.mode==='keys'?'指で画を決めて「今の画をキーに」':(state.cam.mode==='rig'?'撮影カメラは編集・真上ビューでドラッグして動かします':state.cam.mode==='pov'?'指でなぞると見る向きが変わります':({orbit:'周回',follow:'追従'}[state.cam.mode])+'カメラの映像');
   el.textContent=t; el.hidden=!t;
 }
 function setView(v){
@@ -1496,12 +1590,13 @@ function changeKind(p,v){
   if(auto) p.name=nextName(type);
   changed(); renderPane(); toast(`${p.name}の種類を変えました`);
 }
-function ensureRig(){
-  let rp=rigPiece(); if(rp) return rp;
+function nextCamName(){const names=new Set(state.cams.map(c=>c.name));for(const L of CAM_LETTERS){if(!names.has('カメラ'+L))return 'カメラ'+L;}return 'カメラ'+(state.cams.length+1);}
+function ensureRig(c){
+  c=c||state.cam; let rp=rigPiece(c); if(rp) return rp;
   const pos=shotCam.position.clone(), dir=new THREE.Vector3(); shotCam.getWorldDirection(dir);
-  rp={id:uid(),type:'camrig',name:'撮影カメラ',color:'#5ec4e2',face:false,size:{x:1,y:1,z:1},opacity:.3,hideInShot:true,style:'figure',ride:null,seat:0,parent:null,hidden:false,pivot:'base',
+  rp={id:uid(),type:'camrig',name:c.name,color:'#5ec4e2',face:false,size:{x:1,y:1,z:1},opacity:.3,hideInShot:true,style:'figure',ride:null,seat:0,parent:null,hidden:false,pivot:'base',
     base:{x:r3(pos.x),y:r3(Math.max(.1,pos.y)),z:r3(pos.z),r:r3(Math.atan2(dir.x,dir.z)/D2R),rx:r3(-Math.asin(clamp(dir.y,-1,1))/D2R),rz:0},keys:[]};
-  state.pieces.push(rp); changed(); return rp;
+  state.pieces.push(rp); c.rigId=rp.id; changed(); return rp;
 }
 function addPiece(type,style){
   const c=view==='top'?topCtl.target:editCtl.target, taken=state.pieces.map(q=>pose(q,time));
@@ -1562,9 +1657,30 @@ function act(a,v,b){
   case 'key-clear': if(p){if(!arm(b,'もう一度で全部消す'))return;p.base=rawPose(p,time);p.keys=[];changed();renderPane();} break;
   case 'key-jump': case 'camkey-jump': if(playing)setPlaying(false); setTime(+v); break;
   case 'dur': state.duration=clamp(Math.round((state.duration+(+v))*10)/10,1,120); if(time>state.duration)time=state.duration; changed(); updateTimeUI(); renderPane(); break;
-  case 'mode': if(v==='rig'&&!rigPiece()){ensureRig();toast('撮影カメラをコマとして置きました。編集・真上ビューでドラッグして動かせます',3200);} c.mode=v; manualCam=false; updateCtl(); updateHint(); changed(); renderPane(); break;
+  case 'mode': if(v==='rig'&&!rigPiece(c)){ensureRig(c);toast('撮影カメラをコマとして置きました。編集・真上ビューでドラッグして動かせます',3200);} c.mode=v; manualCam=false; updateCtl(); updateHint(); changed(); renderPane(); break;
   case 'lens': c.lens=+v; changed(); renderPane(); break;
-  case 'aspect': c.aspect=v; changed(); renderPane(); break;
+  case 'aspect': state.aspect=v; changed(); renderPane(); break;
+  case 'camsel': state.camSel=v; manualCam=false; updateCtl(); updateHint(); changed(); renderPane(); break;
+  case 'camadd': {
+    const src=state.cam, nc=JSON.parse(JSON.stringify(src)); nc.id=uid(); nc.name=nextCamName();
+    if(src.rigId){const rp=pieceById(src.rigId);if(rp){const np=JSON.parse(JSON.stringify(rp));np.id=uid();np.name=nc.name;np.parent=rp.parent;state.pieces.push(np);nc.rigId=np.id;}else nc.rigId=null;}
+    state.cams.push(nc); state.camSel=nc.id; manualCam=false; changed(); renderPane(); toast(`${nc.name}を増やしました（${src.name}と同じ設定から始まります）`,3000);
+  } break;
+  case 'camdel': if(state.cams.length>1){
+    if(!arm(b,'もう一度で削除'))return;
+    const k=state.cam; state.cams=state.cams.filter(x=>x!==k); state.cuts=state.cuts.filter(x=>x.cam!==k.id);
+    if(k.rigId){state.pieces.forEach(q=>{if(q.parent===k.rigId)toWorldSpace(q);});state.pieces=state.pieces.filter(q=>q.id!==k.rigId);if(selId===k.rigId)selId=null;}
+    state.camSel=state.cams[0].id; manualCam=false; changed(); renderPane(); toast(`${k.name}を削除しました`);
+  } break;
+  case 'cutadd': {
+    const t=snap(time);
+    if(!state.cuts.length&&t>1e-3){const other=state.cams.find(x=>x!==state.cam)||state.cam;state.cuts.push({t:0,cam:other.id});}
+    const i=state.cuts.findIndex(x=>Math.abs(x.t-t)<.5/FPS);
+    if(i>=0) state.cuts[i].cam=state.cam.id; else{state.cuts.push({t:r3(t),cam:state.cam.id});state.cuts.sort((a,b)=>a.t-b.t);}
+    changed(); renderPane(); updateCtl(); updateHint(); toast(`${tc(t)} から「${state.cam.name}」に切り替わります`);
+  } break;
+  case 'cutdel': state.cuts.splice(+v,1); changed(); renderPane(); updateCtl(); updateHint(); break;
+  case 'camview': pref.camView=v; savePref(); updateCtl(); updateHint(); renderPane(); break;
   case 'camkey-add': addCamKey(); break;
   case 'ease-key': if(p){const t=snap(time),k=p.keys.find(q=>Math.abs(q.t-t)<.5/FPS);
     if(!k){toast('この時間にキーがありません。キーの印をタップしてから押してください');break;}
@@ -1581,7 +1697,7 @@ function act(a,v,b){
     editPose(p,{[f]:nv});renderPane();toast(`${{r:'向き',rx:'前後',rz:'横'}[f]}を${dd<0?'逆向きに':''}1回転させました（${Math.round(nv)}°）`);} break;
   case 'pivot': if(p){p.pivot=v;changed();renderPane();} break;
   case 'open-add': openAdd(); break;
-  case 'rig-select': case 'rig-motion': {const rp=rigPiece()||ensureRig(); if(selId!==rp.id) selId=rp.id; pref.tab=a==='rig-select'?'piece':'motion'; pref.collapsed=false; savePref(); select(rp.id);} break;
+  case 'rig-select': case 'rig-motion': {const rp=rigPiece(c)||ensureRig(c); if(selId!==rp.id) selId=rp.id; pref.tab=a==='rig-select'?'piece':'motion'; pref.collapsed=false; savePref(); select(rp.id);} break;
   case 'pick': if(selId===v){pref.tab='piece';savePref();renderPane();panes.scrollTop=0;}else select(v); break;
   case 'vis': {const q=pieceById(v);if(q){q.hidden=!q.hidden;changed();renderPane();}} break;
   case 'camkey-del': {const t=snap(time),i=c.keys.findIndex(k=>Math.abs(k.t-t)<.5/FPS);
@@ -1592,12 +1708,12 @@ function act(a,v,b){
   case 'bg': state.scene.bg=v; applyScene(); changed(); renderPane(); break;
   case 'ground': state.scene.ground=v; applyScene(); changed(); renderPane(); break;
   case 'reset-sample': if(!arm(b,'もう一度でサンプルに戻す'))return; loadState(normalize(sampleScene())); toast('サンプルに戻しました'); break;
-  case 'clear-all': {if(!arm(b,'もう一度ですべて消す'))return; const s=sampleScene(); s.pieces=[]; s.cam.target=null; s.cam.keys=[]; s.scene=Object.assign({},state.scene); loadState(normalize(s)); toast('空のシーンにしました');} break;
+  case 'clear-all': {if(!arm(b,'もう一度ですべて消す'))return; const s=sampleScene(); s.pieces=[]; s.cam.target=null; s.cam.keys=[]; s.scene=Object.assign({},state.scene); s.aspect=state.aspect; loadState(normalize(s)); toast('空のシーンにしました');} break;
   }
 }
 /* timeline gestures: drag a key to retime it, drag on a track to scrub */
 let tlDrag=null, tlScrub=null;
-const keysOf=o=>o==='cam'?state.cam.keys:o==='pov'?state.cam.povKeys:(pieceById(o)||{keys:[]}).keys;
+const keysOf=o=>o==='cut'?state.cuts:o==='cam'?state.cam.keys:o==='pov'?state.cam.povKeys:(pieceById(o)||{keys:[]}).keys;
 function tlScrubTo(x){const r=tlScrub.rect;if(playing)setPlaying(false);setTime(snap(clamp((x-r.left)/r.width,0,1)*state.duration));}
 panes.addEventListener('pointerdown',e=>{
   const tr=e.target.closest('.tltrack'); if(!tr||recording) return;
@@ -1629,7 +1745,7 @@ function tlEnd(e){
     if(k){k.t=r3(d.nt);ks.sort((a,b)=>a.t-b.t);manualCam=false;changed();renderPane();toast(`キーを ${tc(d.t0)} → ${tc(d.nt)} に動かしました`);}
   }else if(e.type==='pointerup'){
     if(playing) setPlaying(false);
-    if(d.o!=='cam'&&d.o!=='pov'&&d.o!==selId){select(d.o);}
+    if(d.o!=='cam'&&d.o!=='pov'&&d.o!=='cut'&&d.o!==selId){select(d.o);}
     setTime(d.t0);
   }else renderPane();
 }
@@ -1658,6 +1774,8 @@ panes.addEventListener('input',e=>{
   if(f==='pz'){if(p&&!p.ride)editPose(p,{z:v});return;}
   if(f==='ride'){if(p){if(v){if(p.parent)toWorldSpace(p);p.ride=v;p.seat=freeSeat(v,p);}else getOff(p);changed();renderPane();}return;}
   if(f==='kind'){if(p)changeKind(p,v);return;}
+  if(f==='camname'){const c=state.cam;c.name=String(v).slice(0,16);const rp=rigPiece(c);if(rp)rp.name=c.name;syncLabels();hudKey='';clearTimeout(saveTimer);saveTimer=setTimeout(save,400);return;}
+  if(f==='cutcam'){const k=state.cuts[+el.dataset.i];if(k){k.cam=v;changed();updateCtl();updateHint();}return;}
   if(f==='parent'){if(p){setParent(p,v||null);changed();renderPane();toast(p.parent?`${p.name}を${pieceById(p.parent).name}のグループに入れました`:`${p.name}をグループから外しました`);}return;}
   if(f==='seat'){if(p){p.seat=+v;changed();}return;}
   if(f==='scene.bg'||f==='scene.ground'){state.scene[f.slice(6)]=v;applyScene();changed();return;}
@@ -1671,13 +1789,14 @@ panes.addEventListener('input',e=>{
     changed();
   }
 });
-panes.addEventListener('keydown',e=>{if(e.target.id==='f-name'&&e.key==='Enter')e.target.blur();});
+panes.addEventListener('keydown',e=>{if((e.target.id==='f-name'||e.target.id==='f-camname'||e.target.id==='f-dur')&&e.key==='Enter')e.target.blur();});
 panes.addEventListener('change',e=>{
   if(e.target.id==='f-dur'){
     const v=parseFloat(e.target.value);
     if(isFinite(v)){state.duration=clamp(Math.round(v*10)/10,1,120);if(time>state.duration)time=state.duration;changed();updateTimeUI();}
     e.target.value=state.duration; return;
   }
+  if(e.target.id==='f-camname'){const c=state.cam;if(!c.name.trim()){c.name=nextCamName();e.target.value=c.name;}changed();renderPane();return;}
   if(e.target.id==='f-name'){
     const p=selPiece();
     if(p&&!p.name.trim()){p.name=nextName(p.type);e.target.value=p.name;}
@@ -1765,7 +1884,7 @@ function startRecording(){
   try{
     if(!recR){recR=new THREE.WebGLRenderer({canvas:recCanvas,antialias:true});recR.shadowMap.enabled=true;recR.shadowMap.type=THREE.PCFSoftShadowMap;recR.setPixelRatio(1);}
   }catch(e){toast('録画を開始できませんでした');return;}
-  const a=ASPECTS[state.cam.aspect]; let w,h;
+  const a=ASPECTS[state.aspect]; let w,h;
   if(a>=1){w=1280;h=Math.round(1280/a/2)*2;}else{h=1280;w=Math.round(1280*a/2)*2;}
   recR.setSize(w,h,false); recSize=[w,h];
   if(view!=='camera') setView('camera');
