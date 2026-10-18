@@ -1015,7 +1015,22 @@ stage.addEventListener('pointerdown',e=>{
 },true);
 const _sv=new THREE.Vector3();
 function screenDist(e,x,y,z){const r=canvas.getBoundingClientRect();_sv.set(x,y,z).project(viewCam());if(_sv.z>1)return 1e9;return Math.hypot((_sv.x+1)/2*r.width+r.left-e.clientX,(1-_sv.y)/2*r.height+r.top-e.clientY);}
+/* name labels count as part of their piece: the label the finger lands on (closest centre wins when they overlap) */
+function labelHit(e){
+  if(!pref.labels||view==='camera') return null;
+  let best=null,bd=1e9;
+  for(const [id,el] of labelEls){
+    if(el.style.display==='none') continue;
+    const r=el.getBoundingClientRect(), pad=6;
+    if(e.clientX<r.left-pad||e.clientX>r.right+pad||e.clientY<r.top-pad||e.clientY>r.bottom+pad) continue;
+    const pp=pieceById(id); if(!pp||pp.hidden) continue;
+    const d=Math.hypot(e.clientX-(r.left+r.right)/2,e.clientY-(r.top+r.bottom)/2);
+    if(d<bd){bd=d;best=id;}
+  }
+  return best;
+}
 function grabsSelected(e,sp){
+  const lh=labelHit(e); if(lh) return lh===sp.id;
   const hp=pick(e,true); if(hp===sp.id) return true;
   const s=pose(sp,time), h=(sp.type==='camrig'?0:PROXY[sp.type][1]*sp.size.y);
   const reach=sp.type==='camrig'?56:46; /* finger-sized radius on screen */
@@ -1087,7 +1102,7 @@ window.addEventListener('pointerup',e=>{
   if(look&&e.pointerId===look.id){endLook();down=null;return;}
   if(drag&&e.pointerId===drag.id){endDrag();return;}
   if(down&&!down.moved&&canDrag()&&ptrs.size===0&&stage.contains(e.target)&&!e.target.closest('#tools,.fab')){
-    const hit=pick(e);
+    const hit=labelHit(e)||pick(e);
     if(hit!==selId){select(hit);if(hit&&!pref.seenGrab){pref.seenGrab=true;savePref();toast('選んだコマは、もう一度触ってドラッグすると動かせます',3000);}}
   }
   if(!ptrs.size) down=null;
