@@ -206,7 +206,7 @@ select{font:500 16px var(--f-body);color:var(--fg);background:var(--panel3);bord
 .keybar{display:flex;gap:8px}
 .keybar .pri{flex:1;min-height:46px;font-size:15px;border-radius:12px}
 .keybar .ib{min-height:46px;width:46px;border-radius:12px}
-.modes{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.modes{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
 .mode{flex-direction:column;gap:5px;min-height:62px;padding:8px 0;font-size:12px;border-radius:12px;background:var(--panel2)}
 .mode[aria-pressed="true"]{background:var(--cyan-soft);border-color:var(--cyan);color:var(--fg);font-weight:700}
 .mode[aria-pressed="true"] .si{color:var(--cyan)}
@@ -356,11 +356,12 @@ const TYPES={
   cat:{label:'猫',foot:.4,g:'animal'},
   horse:{label:'馬',foot:1.25,g:'animal'},
   bird:{label:'鳥',foot:.35,g:'animal'},
-  glass:{label:'透明ブロック',foot:.75,g:'block'}
+  glass:{label:'透明ブロック',foot:.75,g:'block'},
+  camrig:{label:'撮影カメラ',foot:.45,g:'hidden'}
 };
 const TYPE_GROUPS=[['basic','コマを置く'],['animal','動物'],['block','ブロック']];
 const BLOCK_BASE={box:[1,1,1],wall:[4,2.5,.2],pillar:[.5,3,.5],glass:[1,1,1]};
-const MOVERS=new Set(['person','car','opencar','ball','dog','cat','horse','bird']);
+const MOVERS=new Set(['person','car','opencar','ball','dog','cat','horse','bird','camrig']);
 const CARS=new Set(['car','opencar']);
 const SEATS=[[-.4,.35],[.4,.35],[-.4,-.6],[.4,-.6]];
 const SEAT_NAMES=['運転席（右前）','助手席（左前）','後ろ右','後ろ左'];
@@ -405,7 +406,8 @@ function normalize(s){
   cam.povKeys=Array.isArray(sc.povKeys)?sc.povKeys.filter(k=>k&&isFinite(k.t)).map(k=>({t:+k.t,yaw:num(k.yaw,0),pitch:clamp(num(k.pitch,0),-60,60)})).sort((a,b)=>a.t-b.t):[];
   cam.keys=Array.isArray(sc.keys)?sc.keys.filter(k=>k&&isFinite(k.t)).map(k=>({t:+k.t,px:num(k.px,0),py:num(k.py,1),pz:num(k.pz,0),tx:num(k.tx,0),ty:num(k.ty,1),tz:num(k.tz,0)})).sort((a,b)=>a.t-b.t):[];
   if(!ASPECTS[cam.aspect]) cam.aspect='16:9';
-  if(!['orbit','follow','pov','keys'].includes(cam.mode)) cam.mode='orbit';
+  if(!['orbit','follow','pov','keys','rig'].includes(cam.mode)) cam.mode='orbit';
+  cam.rigAim=!!cam.rigAim;
   cam.povSmooth=clamp(num(cam.povSmooth,.5),0,1.5); cam.povSelf=!!cam.povSelf;
   cam.lens=clamp(num(cam.lens,35),12,200); cam.shake=clamp(num(cam.shake,0),0,1); cam.lookH=num(cam.lookH,1.2);
   const pieces=[];
@@ -519,8 +521,8 @@ function setFrustum(vfov,aspect){
 /* piece meshes */
 function mat(c){return new THREE.MeshStandardMaterial({color:c,roughness:.75,metalness:0});}
 const PROXY={person:[.9,2,.9],car:[2.3,1.9,4.7],opencar:[2.3,1.6,4.7],box:[1.4,1.4,1.4],ball:[1,1,1],wall:[4.3,2.8,1],pillar:[1,3.2,1],
-  dog:[.6,.95,1.2],cat:[.45,.7,.85],horse:[.9,2.4,2.4],bird:[.8,.45,.6],glass:[1.02,1.02,1.02]};
-const LABEL_H={person:2.05,car:1.95,opencar:1.85,box:1.3,ball:.85,wall:2.8,pillar:3.3,dog:.95,cat:.7,horse:2.45,bird:.5,glass:1.15};
+  dog:[.6,.95,1.2],cat:[.45,.7,.85],horse:[.9,2.4,2.4],bird:[.8,.45,.6],glass:[1.02,1.02,1.02],camrig:[.9,.8,1.1]};
+const LABEL_H={person:2.05,car:1.95,opencar:1.85,box:1.3,ball:.85,wall:2.8,pillar:3.3,dog:.95,cat:.7,horse:2.45,bird:.5,glass:1.15,camrig:.55};
 const sigOf=p=>p.type+p.color+(p.type==='glass'?p.opacity:'')+(p.type==='person'?p.style:'');
 /* four-legged animals share one builder; numbers are metres */
 const QUAD={
@@ -609,6 +611,8 @@ function buildPiece(p){
     const wings=[];
     for(const s of [-1,1]){const wp=new THREE.Group();wp.position.set(s*.08,.19,0);g.add(wp);add(new THREE.BoxGeometry(.3,.015,.15),m,s*.15,0,0,wp);wings.push(wp);}
     g.userData.wings=wings;
+  }else if(p.type==='camrig'){
+    g.userData.rig=true; /* drawn by the camera gizmo; only the touch target lives here */
   }else if(p.type==='glass'){
     const gm=new THREE.MeshStandardMaterial({color:p.color,transparent:true,opacity:p.opacity,depthWrite:false,roughness:.2});
     const me=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),gm); me.position.y=.5; me.renderOrder=1; g.add(me);
@@ -620,7 +624,7 @@ function buildPiece(p){
   }
   /* invisible, larger touch target so thin pieces are easy to grab */
   const pr=PROXY[p.type], proxy=new THREE.Mesh(new THREE.BoxGeometry(pr[0],pr[1],pr[2]),new THREE.MeshBasicMaterial({visible:false}));
-  proxy.position.y=pr[1]/2; g.add(proxy);
+  proxy.position.y=p.type==='camrig'?0:pr[1]/2; g.add(proxy);
   return g;
 }
 function disposeObj(o){o.traverse(x=>{if(x.geometry)x.geometry.dispose(); if(x.material)(Array.isArray(x.material)?x.material:[x.material]).forEach(mm=>mm.dispose());});}
@@ -748,8 +752,24 @@ function povCam(p,t){
   P.divideScalar(sw); if(D.lengthSq()<1e-6) D.set(0,0,1); D.normalize();
   return {pos:P,tgt:P.clone().addScaledVector(D,5)};
 }
+const rigPiece=()=>state.pieces.find(q=>q.type==='camrig')||null;
+function rigRaw(rp,t){
+  const c=state.cam, s=pose(rp,t), pos=new THREE.Vector3(s.x,s.y,s.z);
+  const tp=c.rigAim&&c.target&&c.target!==rp.id?pieceById(c.target):null; let dir;
+  if(tp){const ts=pose(tp,t);dir=new THREE.Vector3(ts.x,ts.y+c.lookH,ts.z).sub(pos);if(dir.lengthSq()<1e-6)dir.set(0,0,1);dir.normalize();}
+  else{const a=s.r*D2R,b=-(s.rx||0)*D2R;dir=new THREE.Vector3(Math.sin(a)*Math.cos(b),Math.sin(b),Math.cos(a)*Math.cos(b));}
+  return {pos,dir,roll:s.rz||0};
+}
+function rigCam(rp,t){ /* same なめらかさ as the first-person camera */
+  const w=state.cam.povSmooth||0;
+  if(w<.02){const r=rigRaw(rp,t);return {pos:r.pos,tgt:r.pos.clone().addScaledVector(r.dir,5),roll:r.roll};}
+  const n=8,P=new THREE.Vector3(),D=new THREE.Vector3(); let sw=0,rl=0;
+  for(let i=-n;i<=n;i++){const f=i/n,wt=Math.exp(-f*f*2.5),r=rigRaw(rp,clamp(t+f*w,0,state.duration));P.addScaledVector(r.pos,wt);D.addScaledVector(r.dir,wt);rl+=r.roll*wt;sw+=wt;}
+  P.divideScalar(sw); if(D.lengthSq()<1e-6) D.set(0,0,1); D.normalize();
+  return {pos:P,tgt:P.clone().addScaledVector(D,5),roll:rl/sw};
+}
 function camPoseAt(t,noShake){
-  const c=state.cam; let pos,tgt;
+  const c=state.cam; let pos,tgt,roll=0;
   if(c.mode==='keys'){
     const k=c.keys;
     if(!k.length){pos=new THREE.Vector3(7,3,9);tgt=new THREE.Vector3(0,1,0);}
@@ -761,6 +781,10 @@ function camPoseAt(t,noShake){
       pos=new THREE.Vector3(a.px+(b.px-a.px)*u,a.py+(b.py-a.py)*u,a.pz+(b.pz-a.pz)*u);
       tgt=new THREE.Vector3(a.tx+(b.tx-a.tx)*u,a.ty+(b.ty-a.ty)*u,a.tz+(b.tz-a.tz)*u);
     }
+  }else if(c.mode==='rig'){
+    const rp=rigPiece();
+    if(!rp){pos=new THREE.Vector3(7,3,9);tgt=new THREE.Vector3(0,1,0);}
+    else{const r=rigCam(rp,t);pos=r.pos;tgt=r.tgt;roll=r.roll;}
   }else{
     const p=state.pieces.find(q=>q.id===c.target), s=p?pose(p,t):{x:0,y:0,z:0,r:0};
     if(c.mode==='pov'){ /* first-person: from the piece's eye, looking where it faces */
@@ -778,7 +802,7 @@ function camPoseAt(t,noShake){
     tgt.z+=(Math.sin(t*1.6+2.1)+.5*Math.sin(t*4.7))*m;
     pos.y+=Math.sin(t*3.1+.4)*m*.25;
   }
-  return {pos,tgt};
+  return {pos,tgt,roll};
 }
 function povAt(t){
   const c=state.cam,k=c.povKeys; if(!k.length) return c.pov;
@@ -863,7 +887,7 @@ function updateScene(t){
   if(sp&&groups.get(sp.id)){const s=pose(sp,t);ring.visible=true;ring.position.set(s.x,.015,s.z);ring.scale.setScalar(TYPES[sp.type].foot*Math.max(sp.size.x,sp.size.z));}
   else ring.visible=false;
   const asp=ASPECTS[state.cam.aspect];
-  if(!manualCam){const cp=camPoseAt(t);shotCam.position.copy(cp.pos);shotCam.lookAt(cp.tgt);shotCtl.target.copy(cp.tgt);}
+  if(!manualCam){const cp=camPoseAt(t);shotCam.position.copy(cp.pos);shotCam.lookAt(cp.tgt);if(cp.roll)shotCam.rotateZ(cp.roll*D2R);shotCtl.target.copy(cp.tgt);}
   applyLens(shotCam,asp);
   gizmo.position.copy(shotCam.position); gizmo.quaternion.copy(shotCam.quaternion); setFrustum(shotCam.fov,asp);
 }
@@ -1076,7 +1100,8 @@ const ICON={
   orbit:SI('<circle cx="12" cy="12" r="3"/><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/>'),
   follow:SI('<circle cx="17" cy="12" r="3"/><path d="M2 12h8M7 8l3 4-3 4"/>'),
   pov:SI('<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
-  keys:SI('<path d="M6 9l3 3-3 3-3-3zM18 9l3 3-3 3-3-3z"/><path d="M9 12h6"/>')
+  keys:SI('<path d="M6 9l3 3-3 3-3-3zM18 9l3 3-3 3-3-3z"/><path d="M9 12h6"/>'),
+  rig:SI('<path d="M12 3v18M3 12h18M12 3 9.5 5.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/>')
 };
 const PIECE_ICON={
   person:'<circle cx="12" cy="5" r="2.5"/><path d="M12 8v7M8 22l4-7 4 7M7 11h10"/>',
@@ -1123,34 +1148,41 @@ const modeHint={
   orbit:'被写体のまわりを回りながら撮ります。',
   follow:'被写体の向きに合わせて、同じ位置関係のまま付いていきます。',
   pov:'選んだコマの目の高さから、向いている方向を撮ります。カメラビューで画面をなぞると見る向きが変わり、再生中になぞると記録されます。',
-  keys:'カメラビューで指を使って画を決め、「今の画をキーに」で記録します。'
+  keys:'カメラビューで指を使って画を決め、「今の画をキーに」で記録します。',
+  rig:'撮影カメラをコマと同じように動かします。編集・真上ビューでカメラをドラッグし、キーやなぞり録りで動きを付けます。'
 };
 function nameHead(p,editable){
-  return `<div class="phead"><span class="sw lg" style="background:${p.color}"></span>${editable?`<input id="f-name" class="nm" data-f="name" value="${esc(p.name)}" maxlength="20" aria-label="名前" enterkeyhint="done" autocomplete="off">`:`<b style="font-size:16px">${esc(p.name)}</b>`}<span class="meta" id="selmeta">${keyMeta(p)}</span><span class="sp"></span>${editable?`<button class="ib" data-act="dup" aria-label="複製">${ICON.copy}</button><button class="ib danger" data-act="del" aria-label="削除">${ICON.trash}</button>`:''}</div>`;
+  return `<div class="phead"><span class="sw lg" style="background:${p.color}"></span>${editable?`<input id="f-name" class="nm" data-f="name" value="${esc(p.name)}" maxlength="20" aria-label="名前" enterkeyhint="done" autocomplete="off">`:`<b style="font-size:16px">${esc(p.name)}</b>`}<span class="meta" id="selmeta">${keyMeta(p)}</span><span class="sp"></span>${editable&&p.type!=='camrig'?`<button class="ib" data-act="dup" aria-label="複製">${ICON.copy}</button>`:''}${editable?`<button class="ib danger" data-act="del" aria-label="削除">${ICON.trash}</button>`:''}</div>`;
 }
 function panePiece(){
   const p=selPiece();
   if(!p) return `<div class="empty"><p class="hint">コマを選ぶと、ここで位置・向き・大きさを変えられます。</p><button class="pri big" data-act="open-add">${ICON.plus}コマを置く</button><p class="hint small">画面のコマをタップすると選べます。選んだコマは指でドラッグして動かします。視点は1本指で回転、2本指でズームと移動です。</p></div>`;
   const s=panePose(p,time), grouped=!!(p.parent&&!p.ride), B=BLOCK_BASE[p.type];
+  const isRig=p.type==='camrig';
   let h=nameHead(p,true);
-  h+=`<div class="swatches">${COLORS.map(c=>`<button class="swb${c===p.color?' on':''}" style="--c:${c}" data-act="color" data-v="${c}" aria-label="色 ${c}"></button>`).join('')}</div>`;
+  if(!isRig) h+=`<div class="swatches">${COLORS.map(c=>`<button class="swb${c===p.color?' on':''}" style="--c:${c}" data-act="color" data-v="${c}" aria-label="色 ${c}"></button>`).join('')}</div>`;
   /* position & rotation */
   let pos='';
   if(p.ride) pos+='<p class="hint small">車に乗っているので、位置と向きは車と一緒に動きます。</p>';
   pos+=rng('px',grouped?'親から X':'位置 X',-30,30,.05,r3(s.x),'m',!!p.ride);
   pos+=rng('pz',grouped?'親から Z':'位置 Z',-30,30,.05,r3(s.z),'m',!!p.ride);
-  pos+=rng('y','浮かせる',0,10,.05,r3(s.y),'m',!!p.ride);
-  pos+=rng('rot',grouped?'向き（親から）':'向き',0,359,1,Math.round(n360(s.r)),'°',(p.face&&p.keys.length>1)||!!p.ride,Math.round(s.r));
+  pos+=rng('y',isRig?'高さ':'浮かせる',0,10,.05,r3(s.y),'m',!!p.ride);
+  pos+=rng('rot',isRig?'向き（パン）':grouped?'向き（親から）':'向き',0,359,1,Math.round(n360(s.r)),'°',(p.face&&p.keys.length>1)||!!p.ride,Math.round(s.r));
   if(MOVERS.has(p.type)) pos+=toggle('face','進行方向を向く',p.face);
   h+=sec('pos','位置と向き',pos,true);
   /* tilt & spin */
   if(!p.ride){
-    let tilt=rng('rx','前後に傾く',-180,180,1,Math.round(wrap180(s.rx||0)),'°',false,Math.round(s.rx||0));
-    tilt+=rng('rz','横に傾く',-180,180,1,Math.round(wrap180(s.rz||0)),'°',false,Math.round(s.rz||0));
+    let tilt=rng('rx',isRig?'ティルト（＋で下向き）':'前後に傾く',-180,180,1,Math.round(wrap180(s.rx||0)),'°',false,Math.round(s.rx||0));
+    tilt+=rng('rz',isRig?'ロール':'横に傾く',-180,180,1,Math.round(wrap180(s.rz||0)),'°',false,Math.round(s.rz||0));
     tilt+=`<div class="lbl">1回転ずつ足す</div><div class="spins">${[['r','向き'],['rx','前後'],['rz','横']].map(([k,l])=>`<div class="spin"><span>${l}</span><button data-act="spin" data-v="${k}:-1" aria-label="${l}を逆向きに1回転">−1回転</button><button data-act="spin" data-v="${k}:1" aria-label="${l}を1回転">＋1回転</button></div>`).join('')}</div>`;
-    tilt+=segRow('回転の中心','pivot',[['base','足元'],['center','真ん中']],p.pivot);
+    if(!isRig) tilt+=segRow('回転の中心','pivot',[['base','足元'],['center','真ん中']],p.pivot);
     tilt+='<p class="hint small">360°を超えて入れられます（720°で2回転）。マイナスにすると逆回転です（-360°で逆向きに1回転）。向きは上から見て＋が左回り、−が右回り。倒れる動きは「足元」、空中で回る動きは「真ん中」が自然です。</p>';
-    h+=sec('tilt','傾きと回転',tilt,false,'スピン・横転');
+    h+=sec('tilt',isRig?'ティルトとロール':'傾きと回転',tilt,isRig,isRig?'':'スピン・横転');
+  }
+  if(isRig){
+    if(state.cam.mode!=='rig') h+='<p class="hint small">この撮影カメラは、カメラタブで「動かす」を選んでいるときに使われます。</p>';
+    let rel=`<div class="fld"><label for="f-parent">親</label><select id="f-parent" data-f="parent"><option value="">なし</option>${state.pieces.filter(q=>q!==p&&!isDesc(p,q)&&!q.ride).map(q=>`<option value="${esc(q.id)}"${q.id===p.parent?' selected':''}>${esc(q.name)}</option>`).join('')}</select></div><p class="hint small">車などを親にすると、そのコマに取り付けたカメラになります。</p>`;
+    return h+sec('rel','取り付け（グループ）',rel,false);
   }
   /* size */
   let size='';
@@ -1167,7 +1199,7 @@ function panePiece(){
     if(p.ride) rel+=`<div class="fld"><label for="f-seat">席</label><select id="f-seat" data-f="seat">${SEAT_NAMES.map((n,i)=>`<option value="${i}"${i===p.seat?' selected':''}>${n}</option>`).join('')}</select></div>`;
   }
   if(!p.ride){
-    const cands=state.pieces.filter(q=>q!==p&&!isDesc(p,q)&&!q.ride);
+    const cands=state.pieces.filter(q=>q!==p&&!isDesc(p,q)&&!q.ride&&q.type!=='camrig');
     rel+=`<div class="fld"><label for="f-parent">親</label><select id="f-parent" data-f="parent"><option value="">なし</option>${cands.map(q=>`<option value="${esc(q.id)}"${q.id===p.parent?' selected':''}>${esc(q.name)}</option>`).join('')}</select></div>`;
     rel+='<p class="hint small">親を選ぶとグループになり、親と同じ動きにこのコマの動きが足されます。</p>';
   }
@@ -1198,10 +1230,17 @@ function paneMotion(){
 }
 function paneCam(){
   const c=state.cam;
-  let h=`<div class="modes" role="group" aria-label="カメラの動き">${[['orbit','周回'],['follow','追従'],['pov','目線'],['keys','キー']].map(([k,l])=>`<button class="mode" data-act="mode" data-v="${k}" aria-pressed="${c.mode===k}">${ICON[k]}${l}</button>`).join('')}</div>`;
+  let h=`<div class="modes" role="group" aria-label="カメラの動き">${[['orbit','周回'],['follow','追従'],['pov','目線'],['keys','キー'],['rig','動かす']].map(([k,l])=>`<button class="mode" data-act="mode" data-v="${k}" aria-pressed="${c.mode===k}">${ICON[k]}${l}</button>`).join('')}</div>`;
   h+=`<p class="hint small">${modeHint[c.mode]}</p>`;
   let mv='';
-  if(c.mode!=='keys') mv+=`<div class="fld"><label for="f-cam-target">被写体</label><select id="f-cam-target" data-f="cam.target"><option value="">中心（原点）</option>${state.pieces.map(p=>`<option value="${esc(p.id)}"${p.id===c.target?' selected':''}>${esc(p.name)}</option>`).join('')}</select></div>`;
+  if(c.mode==='rig'){
+    const rp=rigPiece();
+    mv+=`<div class="btnrow"><button class="cam" data-act="rig-select">撮影カメラを選ぶ</button><button data-act="rig-motion">動きを付ける</button></div>`;
+    mv+='<p class="hint small">撮影カメラは、編集・真上ビューで水色のカメラをドラッグして動かします。「コマ」タブで高さ・向き（パン）・ティルト・ロール、「動き」タブでキーを付けられます。親に車を選べば車載カメラになります。</p>';
+    mv+=toggle('rigaim','被写体を狙う（向きは自動）',c.rigAim);
+    if(!rp) mv+='<p class="hint small">撮影カメラが見つかりません。もう一度「動かす」を押すと置き直します。</p>';
+  }
+  if(c.mode!=='keys'&&(c.mode!=='rig'||c.rigAim)) mv+=`<div class="fld"><label for="f-cam-target">被写体</label><select id="f-cam-target" data-f="cam.target"><option value="">中心（原点）</option>${state.pieces.map(p=>`<option value="${esc(p.id)}"${p.id===c.target?' selected':''}>${esc(p.name)}</option>`).join('')}</select></div>`;
   if(c.mode==='orbit'){
     mv+=rng('cam.orbit.radius','距離',.8,30,.1,c.orbit.radius,'m');
     mv+=rng('cam.orbit.height','高さ',.1,20,.1,c.orbit.height,'m');
@@ -1214,6 +1253,8 @@ function paneCam(){
     mv+=rng('cam.follow.height','高さ',.1,20,.1,c.follow.height,'m');
     mv+=rng('cam.lookH','狙う高さ',0,3,.05,c.lookH,'m');
     mv+='<p class="hint small">角度は0°で正面、180°で背後です。</p>';
+  }else if(c.mode==='rig'){
+    if(c.rigAim) mv+=rng('cam.lookH','狙う高さ',0,3,.05,c.lookH,'m');
   }else if(c.mode==='pov'){
     const pv=povAt(time);
     mv+=rng('cam.pov.yaw','見る向き',-180,180,1,Math.round(wrap180(pv.yaw)),'°');
@@ -1230,7 +1271,7 @@ function paneCam(){
   lens+=`<div class="lbl">画面比</div><div class="chiprow">${Object.keys(ASPECTS).map(a=>`<button class="pick${a===c.aspect?' on':''}" data-act="aspect" data-v="${a}">${a}</button>`).join('')}</div>`;
   h+=sec('clens','レンズと画面比',lens,false,`${c.lens}mm・${c.aspect}`);
   let fin=rng('cam.shake','手ブレ',0,1,.05,c.shake,'');
-  if(c.mode==='pov'){fin+=rng('cam.povSmooth','なめらかさ',0,1.5,.05,c.povSmooth,'s');fin+=toggle('povself','自分の体を映す（人・動物）',c.povSelf);fin+='<p class="hint small">なめらかさは、向きの細かいブレや視線のカクつきをならします。</p>';}
+  if(c.mode==='pov'||c.mode==='rig'){fin+=rng('cam.povSmooth','なめらかさ',0,1.5,.05,c.povSmooth,'s');if(c.mode==='pov')fin+=toggle('povself','自分の体を映す（人・動物）',c.povSelf);fin+='<p class="hint small">なめらかさは、向きの細かいブレや視線のカクつきをならします。</p>';}
   h+=sec('cfin','仕上げ',fin,false);
   if(view==='edit') h+=`<div><button class="ghost" data-act="sync-edit">編集ビューを撮影カメラの位置へ</button></div>`;
   return h;
@@ -1286,8 +1327,8 @@ function paneTimeline(){
   const step=d<=10?1:d<=30?5:10; let ticks='';
   for(let t=0;t<=d+1e-6;t+=step) ticks+=`<span class="tick" style="left:${pc(t)}">${t}s</span>`;
   let h=`<div class="tl" id="tl"><div class="tlrow tlruler"><div class="tlname"></div><div class="tltrack" data-scrub="1">${ticks}</div></div>`;
-  const c=state.cam, ck=c.mode==='keys'?c.keys:c.mode==='pov'?c.povKeys:null, cname={orbit:'周回',follow:'追従',pov:'目線',keys:'キー'}[c.mode];
-  h+=`<div class="tlrow"><button class="tlname" data-act="tab-cam"><span class="sw" style="background:var(--cyan)"></span>カメラ（${cname}）</button><div class="tltrack" data-scrub="1">${ck?track(ck,'cam',c.mode==='keys'?'cam':'pov'):'<span class="tlnote">設定どおり自動で動きます</span>'}</div></div>`;
+  const c=state.cam, rigP=c.mode==='rig'?rigPiece():null, ck=c.mode==='keys'?c.keys:c.mode==='pov'?c.povKeys:rigP?rigP.keys:null, cname={orbit:'周回',follow:'追従',pov:'目線',keys:'キー',rig:'動かす'}[c.mode];
+  h+=`<div class="tlrow"><button class="tlname" data-act="tab-cam"><span class="sw" style="background:var(--cyan)"></span>カメラ（${cname}）</button><div class="tltrack" data-scrub="1">${ck?track(ck,'cam',c.mode==='keys'?'cam':c.mode==='pov'?'pov':rigP.id):'<span class="tlnote">設定どおり自動で動きます</span>'}</div></div>`;
   const ids=new Set(state.pieces.map(q=>q.id));
   const up=q=>q.ride&&ids.has(q.ride)?q.ride:(q.parent&&ids.has(q.parent)?q.parent:null);
   const row=(q,dp)=>{
@@ -1332,6 +1373,7 @@ function rebuildMarks(){
   const p=selPiece(); if(p) for(const k of p.keys) h+=`<i class="mk${k.ease?' ez':''}" style="${pos(k.t)}"></i>`;
   if(state.cam.mode==='keys') for(const k of state.cam.keys) h+=`<i class="mk cam" style="${pos(k.t)}"></i>`;
   if(state.cam.mode==='pov') for(const k of state.cam.povKeys) h+=`<i class="mk cam" style="${pos(k.t)}"></i>`;
+  const rp=state.cam.mode==='rig'&&rigPiece(); if(rp&&rp.id!==selId) for(const k of rp.keys) h+=`<i class="mk cam" style="${pos(k.t)}"></i>`;
   marksEl.innerHTML=h;
 }
 function changed(){syncMeshes();syncLabels();rebuildPaths();rebuildMarks();refreshChips();
@@ -1372,7 +1414,7 @@ function setPlaying(v){
 function updateCtl(){editCtl.enabled=view==='edit'&&!recording;topCtl.enabled=view==='top'&&!recording;shotCtl.enabled=view==='camera'&&state.cam.mode==='keys'&&!recording;}
 function updateHint(){
   const el=$('#hint'); let t='';
-  if(view==='camera') t=recording?'':state.cam.mode==='keys'?'指で画を決めて「今の画をキーに」':(state.cam.mode==='pov'?'指でなぞると見る向きが変わります':({orbit:'周回',follow:'追従'}[state.cam.mode])+'カメラの映像');
+  if(view==='camera') t=recording?'':state.cam.mode==='keys'?'指で画を決めて「今の画をキーに」':(state.cam.mode==='rig'?'撮影カメラは編集・真上ビューでドラッグして動かします':state.cam.mode==='pov'?'指でなぞると見る向きが変わります':({orbit:'周回',follow:'追従'}[state.cam.mode])+'カメラの映像');
   el.textContent=t; el.hidden=!t;
 }
 function setView(v){
@@ -1394,6 +1436,13 @@ function getOff(p){ /* step out beside the car on the seat's side */
   if(car&&!p.keys.length){const c=pose(car,time),o=SEATS[p.seat]||SEATS[0],r=c.r*D2R,ox=Math.sign(o[0])*1.6*car.size.x,oz=o[1]*car.size.z;
     p.base={x:r3(c.x+ox*Math.cos(r)+oz*Math.sin(r)),y:0,z:r3(c.z-ox*Math.sin(r)+oz*Math.cos(r)),r:r3(c.r)};}
   p.ride=null;
+}
+function ensureRig(){
+  let rp=rigPiece(); if(rp) return rp;
+  const pos=shotCam.position.clone(), dir=new THREE.Vector3(); shotCam.getWorldDirection(dir);
+  rp={id:uid(),type:'camrig',name:'撮影カメラ',color:'#5ec4e2',face:false,size:{x:1,y:1,z:1},opacity:.3,hideInShot:true,style:'figure',ride:null,seat:0,parent:null,hidden:false,pivot:'base',
+    base:{x:r3(pos.x),y:r3(Math.max(.1,pos.y)),z:r3(pos.z),r:r3(Math.atan2(dir.x,dir.z)/D2R),rx:r3(-Math.asin(clamp(dir.y,-1,1))/D2R),rz:0},keys:[]};
+  state.pieces.push(rp); changed(); return rp;
 }
 function addPiece(type,style){
   const c=view==='top'?topCtl.target:editCtl.target, taken=state.pieces.map(q=>pose(q,time));
@@ -1438,6 +1487,7 @@ function act(a,v,b){
   case 'color': if(p){p.color=v;changed();renderPane();} break;
   case 'toggle':
     if(v==='face'&&p){p.face=!p.face;changed();renderPane();}
+    else if(v==='rigaim'){state.cam.rigAim=!state.cam.rigAim;changed();renderPane();}
     else if(v==='vissel'&&p){p.hidden=!p.hidden;changed();renderPane();}
     else if(v==='hideshot'&&p){p.hideInShot=!p.hideInShot;changed();renderPane();}
     else if(v==='povself'){state.cam.povSelf=!state.cam.povSelf;changed();renderPane();}
@@ -1452,7 +1502,7 @@ function act(a,v,b){
   case 'key-clear': if(p){if(!arm(b,'もう一度で全部消す'))return;p.base=rawPose(p,time);p.keys=[];changed();renderPane();} break;
   case 'key-jump': case 'camkey-jump': if(playing)setPlaying(false); setTime(+v); break;
   case 'dur': state.duration=clamp(state.duration+(+v),2,60); if(time>state.duration)time=state.duration; changed(); updateTimeUI(); renderPane(); break;
-  case 'mode': c.mode=v; manualCam=false; updateCtl(); updateHint(); changed(); renderPane(); break;
+  case 'mode': if(v==='rig'&&!rigPiece()){ensureRig();toast('撮影カメラをコマとして置きました。編集・真上ビューでドラッグして動かせます',3200);} c.mode=v; manualCam=false; updateCtl(); updateHint(); changed(); renderPane(); break;
   case 'lens': c.lens=+v; changed(); renderPane(); break;
   case 'aspect': c.aspect=v; changed(); renderPane(); break;
   case 'camkey-add': addCamKey(); break;
@@ -1471,6 +1521,7 @@ function act(a,v,b){
     editPose(p,{[f]:nv});renderPane();toast(`${{r:'向き',rx:'前後',rz:'横'}[f]}を${dd<0?'逆向きに':''}1回転させました（${Math.round(nv)}°）`);} break;
   case 'pivot': if(p){p.pivot=v;changed();renderPane();} break;
   case 'open-add': openAdd(); break;
+  case 'rig-select': case 'rig-motion': {const rp=rigPiece()||ensureRig(); if(selId!==rp.id) selId=rp.id; pref.tab=a==='rig-select'?'piece':'motion'; pref.collapsed=false; savePref(); select(rp.id);} break;
   case 'pick': if(selId===v){pref.tab='piece';savePref();renderPane();panes.scrollTop=0;}else select(v); break;
   case 'vis': {const q=pieceById(v);if(q){q.hidden=!q.hidden;changed();renderPane();}} break;
   case 'camkey-del': {const t=snap(time),i=c.keys.findIndex(k=>Math.abs(k.t-t)<.5/FPS);
