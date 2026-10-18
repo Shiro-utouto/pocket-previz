@@ -432,7 +432,7 @@ function normalize(s){
   if(cam.target&&!pieces.some(p=>p.id===cam.target)) cam.target=null;
   const ss=s.scene&&typeof s.scene==='object'?s.scene:{}, hex=v=>/^#[0-9a-f]{6}$/i.test(v);
   const scn={bg:hex(ss.bg)?ss.bg:d.scene.bg,ground:hex(ss.ground)?ss.ground:d.scene.ground,grid:['off','1','5','10'].includes(String(ss.grid))?String(ss.grid):d.scene.grid,gridShot:ss.gridShot!==false};
-  return {duration:clamp(Math.round(num(s.duration,8)),2,60),pieces,cam,scene:scn};
+  return {duration:clamp(Math.round(num(s.duration,8)*10)/10,1,120),pieces,cam,scene:scn};
 }
 let state=null, fromSample=false;
 try{const raw=localStorage.getItem(SKEY); if(raw) state=normalize(JSON.parse(raw));}catch(e){state=null;}
@@ -979,7 +979,7 @@ function loop(now){
 /* ---------- picking & dragging ---------- */
 const ray=new THREE.Raycaster(), ndc=new THREE.Vector2(), gplane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
 function setRay(e){const r=canvas.getBoundingClientRect();ndc.set((e.clientX-r.left)/r.width*2-1,-((e.clientY-r.top)/r.height)*2+1);ray.setFromCamera(ndc,viewCam());}
-function pick(e){
+function pick(e,raw){
   setRay(e); const hits=ray.intersectObjects([...groups.values()],true);
   let glass=null; /* pieces inside a transparent block win over the block */
   for(const h of hits){let o=h.object;while(o&&!o.userData.pid)o=o.parent;if(!o)continue;
@@ -1004,19 +1004,24 @@ stage.addEventListener('pointerdown',e=>{
     return;
   }
   if(!canDrag()||ptrs.size>1||(e.button&&e.button!==0)) return;
-  let pid=pick(e);
-  if(!pid){ /* a touch near the selected piece's ring also grabs it */
-    const sp=selPiece(), g=groundAt(e);
-    if(sp&&g){const s=pose(sp,time);if(Math.hypot(g.x-s.x,g.z-s.z)<Math.max(.8,TYPES[sp.type].foot*Math.max(sp.size.x,sp.size.z)*1.3))pid=sp.id;}
-  }
-  if(!pid) return;
+  /* only the selected piece can be dragged; touching anything else moves the view (a tap selects) */
+  const sp=selPiece(); if(!sp||!grabsSelected(e,sp)) return;
+  const pid=sp.id;
   e.stopPropagation(); e.preventDefault();
   if(playing) setPlaying(false);
-  if(selId!==pid) select(pid);
   const p0=selPiece(), p=(p0.ride&&state.pieces.find(q=>q.id===p0.ride))||p0, s=pose(p,time), g=groundAt(e);
   drag={id:e.pointerId,pid:p.id,ox:g?s.x-g.x:0,oz:g?s.z-g.z:0,sx:e.clientX,sy:e.clientY,pendingTrace:traceMode};
   try{stage.setPointerCapture(e.pointerId);}catch(_){}
 },true);
+const _sv=new THREE.Vector3();
+function screenDist(e,x,y,z){const r=canvas.getBoundingClientRect();_sv.set(x,y,z).project(viewCam());if(_sv.z>1)return 1e9;return Math.hypot((_sv.x+1)/2*r.width+r.left-e.clientX,(1-_sv.y)/2*r.height+r.top-e.clientY);}
+function grabsSelected(e,sp){
+  const hp=pick(e,true); if(hp===sp.id) return true;
+  const s=pose(sp,time), h=(sp.type==='camrig'?0:PROXY[sp.type][1]*sp.size.y);
+  const reach=sp.type==='camrig'?56:46; /* finger-sized radius on screen */
+  if(Math.min(screenDist(e,s.x,s.y,s.z),screenDist(e,s.x,s.y+h/2,s.z),screenDist(e,s.x,s.y+h,s.z))<reach) return true;
+  const g=groundAt(e); return !!(g&&Math.hypot(g.x-s.x,g.z-s.z)<Math.max(.8,TYPES[sp.type].foot*Math.max(sp.size.x,sp.size.z)*1.3));
+}
 /* trace recording: the finger's path is written as keys while time runs */
 function startTrace(p){
   if(time>=state.duration-.5/FPS){toast('時間バーが最後まで進んでいます。戻してから録ってください');return;}
@@ -1081,7 +1086,10 @@ window.addEventListener('pointerup',e=>{
   ptrs.delete(e.pointerId);
   if(look&&e.pointerId===look.id){endLook();down=null;return;}
   if(drag&&e.pointerId===drag.id){endDrag();return;}
-  if(down&&!down.moved&&canDrag()&&ptrs.size===0&&stage.contains(e.target)&&!e.target.closest('#tools,.fab')&&!pick(e)) select(null);
+  if(down&&!down.moved&&canDrag()&&ptrs.size===0&&stage.contains(e.target)&&!e.target.closest('#tools,.fab')){
+    const hit=pick(e);
+    if(hit!==selId){select(hit);if(hit&&!pref.seenGrab){pref.seenGrab=true;savePref();toast('選んだコマは、もう一度触ってドラッグすると動かせます',3000);}}
+  }
   if(!ptrs.size) down=null;
 });
 window.addEventListener('pointercancel',e=>{ptrs.delete(e.pointerId);if(look&&e.pointerId===look.id)endLook();if(drag&&e.pointerId===drag.id)endDrag();if(!ptrs.size)down=null;});
@@ -1225,7 +1233,7 @@ function paneMotion(){
         h+=sec('mall','まとめて操作',`<div class="btnrow"><button data-act="ease-all">${allE?'全部のイーズを外す':'全部のキーにイーズ'}</button><button class="danger" data-act="key-clear">キーを全部消す</button></div><p class="hint small">イージーイーズを付けたキー（丸い印）の前後は、ゆっくり止まってゆっくり動き出します。</p>`,false);}
     }
   }else h+='<p class="hint">動かしたいコマを画面でタップして選んでください。「一覧」タブからも選べます。</p>';
-  h+=`<div class="row2"><div class="stepper"><span class="lbl">シーンの長さ</span><button data-act="dur" data-v="-1" aria-label="1秒短く">−</button><span class="num">${state.duration}秒</span><button data-act="dur" data-v="1" aria-label="1秒長く">＋</button></div>${toggle('loop','ループ再生',pref.loop)}</div>`;
+  h+=`<div class="row2"><div class="stepper"><span class="lbl">シーンの長さ</span><button data-act="dur" data-v="-1" aria-label="1秒短く">−</button><span class="numw"><input type="number" class="numin" id="f-dur" data-f="duration" inputmode="decimal" step="any" min="1" max="120" value="${state.duration}" aria-label="シーンの長さ（秒）"><i>秒</i></span><button data-act="dur" data-v="1" aria-label="1秒長く">＋</button></div>${toggle('loop','ループ再生',pref.loop)}</div>`;
   return h;
 }
 function paneCam(){
@@ -1501,7 +1509,7 @@ function act(a,v,b){
   case 'key-prev': case 'key-next': jumpKey(p?p.keys:[],a==='key-next'); break;
   case 'key-clear': if(p){if(!arm(b,'もう一度で全部消す'))return;p.base=rawPose(p,time);p.keys=[];changed();renderPane();} break;
   case 'key-jump': case 'camkey-jump': if(playing)setPlaying(false); setTime(+v); break;
-  case 'dur': state.duration=clamp(state.duration+(+v),2,60); if(time>state.duration)time=state.duration; changed(); updateTimeUI(); renderPane(); break;
+  case 'dur': state.duration=clamp(Math.round((state.duration+(+v))*10)/10,1,120); if(time>state.duration)time=state.duration; changed(); updateTimeUI(); renderPane(); break;
   case 'mode': if(v==='rig'&&!rigPiece()){ensureRig();toast('撮影カメラをコマとして置きました。編集・真上ビューでドラッグして動かせます',3200);} c.mode=v; manualCam=false; updateCtl(); updateHint(); changed(); renderPane(); break;
   case 'lens': c.lens=+v; changed(); renderPane(); break;
   case 'aspect': c.aspect=v; changed(); renderPane(); break;
@@ -1585,6 +1593,7 @@ panes.addEventListener('input',e=>{
   }
   else if(el.dataset.n){v=parseFloat(v);if(!isFinite(v))return;const r=el.closest('.fld').querySelector('input[type=range]');if(r)r.value=ROT_F[f]?sliderAngle(f,v):v;}
   const p=selPiece();
+  if(f==='duration'){return;} /* applied on change so typing '1' on the way to '12' doesn't cut keys */
   if(f==='name'){if(p){p.name=String(v).slice(0,20);syncLabels();clearTimeout(saveTimer);saveTimer=setTimeout(save,400);}return;}
   if(f==='rot'){if(p)editPose(p,{r:v});return;}
   if(f==='rx'||f==='rz'){if(p)editPose(p,{[f]:v});return;}
@@ -1611,6 +1620,11 @@ panes.addEventListener('input',e=>{
 });
 panes.addEventListener('keydown',e=>{if(e.target.id==='f-name'&&e.key==='Enter')e.target.blur();});
 panes.addEventListener('change',e=>{
+  if(e.target.id==='f-dur'){
+    const v=parseFloat(e.target.value);
+    if(isFinite(v)){state.duration=clamp(Math.round(v*10)/10,1,120);if(time>state.duration)time=state.duration;changed();updateTimeUI();}
+    e.target.value=state.duration; return;
+  }
   if(e.target.id==='f-name'){
     const p=selPiece();
     if(p&&!p.name.trim()){p.name=nextName(p.type);e.target.value=p.name;}
